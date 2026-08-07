@@ -169,9 +169,10 @@ const STATUS = [
   {id:'abgeholt',   label:'Abgeholt',   kurz:'Abg'}
 ];
 const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
-const SCOPE = 'https://www.googleapis.com/auth/drive';
+const SCOPE = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events';
+const ZEITZONE = 'Europe/Berlin';
 
-let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json'};
+let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json', kalender:true};
 let daten = {version:1, settings:Object.assign({},VORGABE), auftraege:[]};
 let dateiId = null, standDrive = null, token = null, tokenClient = null;
 let filter = 'offen', suchtext = '', entwurf = null, aktuelleId = null, syncLaeuft = false;
@@ -285,6 +286,82 @@ async function sichern(){
   catch(e){ zustand('aus','Nicht gespeichert'); melden(e.message, true); }
 }
 
+/* ---------- Kalender ---------- */
+const TERMINE = [
+  {feld:'termin', uhr:'uhrAnnahme', schl:'annahme', wort:'Annahme'},
+  {feld:'fertig', uhr:'uhrFertig',  schl:'fertig',  wort:'Fertigstellung'}
+];
+function plusTag(iso){ const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); }
+function erinnerungMinuten(start){
+  const e = new Date(start); e.setDate(e.getDate()-1); e.setHours(14,0,0,0);
+  const m = Math.round((start - e)/60000);
+  return Math.min(Math.max(m, 5), 40320);
+}
+function terminObjekt(a, t){
+  const tag = a[t.feld];
+  if(!tag) return null;
+  const uhr = (a[t.uhr]||'').trim();
+  const fzg = [a.fahrzeug?.marke, a.fahrzeug?.modell].filter(Boolean).join(' ') || 'Fahrzeug';
+  const zeilen = ['Auftrag ' + (a.nummer||''), a.kunde?.name||'', a.anliegen||'', a.notiz||''];
+  if(a.fahrzeug?.kennzeichen) zeilen.splice(2, 0, 'Kennzeichen ' + a.fahrzeug.kennzeichen);
+  const ev = {
+    summary: t.wort + ': ' + fzg + (a.kunde?.name ? ' – ' + a.kunde.name : ''),
+    description: zeilen.filter(Boolean).join('\n')
+  };
+  let start;
+  if(uhr){
+    const [h,m] = uhr.split(':').map(Number);
+    start = new Date(tag+'T00:00:00'); start.setHours(h||0, m||0, 0, 0);
+    const ende = new Date(start.getTime() + 60*60000);
+    const iso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+      +'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00';
+    ev.start = {dateTime: iso(start), timeZone: ZEITZONE};
+    ev.end   = {dateTime: iso(ende),  timeZone: ZEITZONE};
+  }else{
+    start = new Date(tag+'T00:00:00');
+    ev.start = {date: tag};
+    ev.end   = {date: plusTag(tag)};
+  }
+  ev.reminders = {useDefault:false, overrides:[
+    {method:'popup', minutes: erinnerungMinuten(start)}
+  ]};
+  return ev;
+}
+async function kalenderAbgleich(a){
+  if(!cfg.kalender) return;
+  a.kalender = a.kalender || {};
+  const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  for(const t of TERMINE){
+    const ev = terminObjekt(a, t);
+    const id = a.kalender[t.schl];
+    try{
+      if(!ev){
+        if(id){ await api(basis+'/'+id, {method:'DELETE'}); delete a.kalender[t.schl]; }
+        continue;
+      }
+      if(id){
+        const r = await api(basis+'/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
+        await r.json();
+      }else{
+        const r = await api(basis+'?sendUpdates=none', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
+        a.kalender[t.schl] = (await r.json()).id;
+      }
+    }catch(e){
+      if(id && /404|410/.test(e.message)){ delete a.kalender[t.schl]; continue; }
+      throw new Error('Kalender: ' + e.message);
+    }
+  }
+}
+async function kalenderEntfernen(a){
+  if(!a.kalender) return;
+  const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  for(const t of TERMINE){
+    const id = a.kalender[t.schl];
+    if(id){ try{ await api(basis+'/'+id, {method:'DELETE'}); }catch(e){} }
+  }
+  a.kalender = {};
+}
+
 /* ---------- Liste ---------- */
 function sichtbar(){
   let l = daten.auftraege.slice();
@@ -292,7 +369,7 @@ function sichtbar(){
   else if(filter !== 'alle') l = l.filter(a=>a.status===filter);
   if(suchtext){ const q = suchtext.toLowerCase(); l = l.filter(a=>JSON.stringify(a).toLowerCase().includes(q)); }
   const rang = {angenommen:0,teile:1,arbeit:2,fertig:3,abgeholt:4};
-  return l.sort((x,y)=> (rang[x.status]-rang[y.status]) || (x.termin||'9999').localeCompare(y.termin||'9999'));
+  return l.sort((x,y)=> (rang[x.status]-rang[y.status]) || ((x.fertig||x.termin||'9999').localeCompare(y.fertig||y.termin||'9999')));
 }
 function renderReiter(){
   const zahl = id => id==='offen' ? daten.auftraege.filter(a=>a.status!=='abgeholt').length
@@ -318,7 +395,7 @@ function renderListe(){
       <div class="fzg">${esc(fzg)}</div>
       <div class="kunde">${esc(a.kunde?.name||'Kunde offen')}${a.fahrzeug?.kennzeichen?' · <span class="kennz">'+esc(a.fahrzeug.kennzeichen)+'</span>':''}</div>
       ${a.anliegen?`<div class="anliegen">${esc(a.anliegen)}</div>`:''}
-      <div class="fuss"><span>${a.termin?'Termin '+datum(a.termin):'angelegt '+datum(a.angelegt)}</span>
+      <div class="fuss"><span>${[a.termin?'An '+datum(a.termin):'', a.fertig?'Fertig '+datum(a.fertig):''].filter(Boolean).join(' · ') || 'angelegt '+datum(a.angelegt)}</span>
         <span class="summe">${eur(s.brutto)}</span></div></button>`;
   }).join('');
   el.querySelectorAll('.karte').forEach(k=> k.onclick = ()=> editor(k.dataset.id));
@@ -328,7 +405,7 @@ function render(){ renderReiter(); renderListe(); }
 /* ---------- Editor ---------- */
 function leerAuftrag(){
   return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
-    angelegt:new Date().toISOString().slice(0,10), termin:'',
+    angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{},
     kunde:{name:'',telefon:'',email:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
@@ -358,7 +435,19 @@ function zeichne(){
   const a = entwurf, s = summen(a);
   document.getElementById('blattInhalt').innerHTML = `
   <div class="statuswahl">${STATUS.map(x=>`<button data-st="${x.id}" aria-pressed="${a.status===x.id}">${x.label}</button>`).join('')}</div>
-  <label for="fTermin">Termin</label><input class="feld" id="fTermin" type="date" value="${esc(a.termin)}">
+  <fieldset><legend>Termine</legend>
+    <label>Annahme</label>
+    <div class="zeile">
+      <input class="feld" id="fTermin" type="date" value="${esc(a.termin)}">
+      <input class="feld" id="fUhrAnnahme" type="time" value="${esc(a.uhrAnnahme||'')}">
+    </div>
+    <label>Vereinbarte Fertigstellung</label>
+    <div class="zeile">
+      <input class="feld" id="fFertig" type="date" value="${esc(a.fertig||'')}">
+      <input class="feld" id="fUhrFertig" type="time" value="${esc(a.uhrFertig||'')}">
+    </div>
+    <p class="notiz">${cfg.kalender ? 'Beide Termine landen im Google Kalender, Erinnerung jeweils am Vortag um 14:00 Uhr. Ohne Uhrzeit als ganztägiger Eintrag.' : 'Kalendereintrag ist unter Konto abgeschaltet.'}</p>
+  </fieldset>
   <fieldset><legend>Kunde</legend>
     <input class="feld" id="kName" placeholder="Name" value="${esc(a.kunde.name||'')}">
     <div class="zeile">
@@ -414,14 +503,20 @@ function zeichne(){
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
   if(d) d.onclick = async ()=>{
-    if(!confirm('Auftrag '+entwurf.nummer+' löschen?')) return;
+    if(!confirm('Auftrag '+entwurf.nummer+' löschen? Vorhandene Kalendereinträge werden mitgelöscht.')) return;
+    const weg = daten.auftraege.find(x=>x.id===aktuelleId);
     daten.auftraege = daten.auftraege.filter(x=>x.id!==aktuelleId);
-    zurueck(); render(); await sichern();
+    zurueck(); render();
+    if(weg && cfg.kalender) try{ await kalenderEntfernen(weg); }catch(e){}
+    await sichern();
   };
 }
 function uebernehmen(){
   const v = id => (document.getElementById(id)||{}).value || '';
   entwurf.termin = v('fTermin');
+  entwurf.uhrAnnahme = v('fUhrAnnahme');
+  entwurf.fertig = v('fFertig');
+  entwurf.uhrFertig = v('fUhrFertig');
   entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
                       fin:v('fFin').toUpperCase(), km:v('fKm')};
@@ -440,7 +535,13 @@ async function speichernAuftrag(){
   }
   const i = daten.auftraege.findIndex(a=>a.id===entwurf.id);
   if(i>=0) daten.auftraege[i] = entwurf; else daten.auftraege.unshift(entwurf);
-  zurueck(); render(); await sichern();
+  const a = entwurf;
+  zurueck(); render();
+  let hinweis = '';
+  try{ zustand('laeuft','Kalender …'); await kalenderAbgleich(a); }
+  catch(e){ hinweis = e.message; }
+  await sichern();
+  if(hinweis) melden(hinweis + ' – Auftrag ist gespeichert, Termin nicht eingetragen.', true);
 }
 
 /* ---------- Konto & Einrichtung ---------- */
@@ -455,6 +556,9 @@ function setup(){
     <input class="feld" id="cId" placeholder="…apps.googleusercontent.com" value="${esc(cfg.clientId)}">
     <label for="cDatei">Dateiname in Drive</label>
     <input class="feld" id="cDatei" value="${esc(cfg.dateiName)}">
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte);margin:4px 0 12px">
+      <input type="checkbox" id="cKal" ${cfg.kalender?'checked':''}> Termine im Google Kalender führen
+    </label>
     <button class="k2" id="btnVerbinden" style="margin-top:4px">Mit Google verbinden</button>
   </fieldset>
   <fieldset><legend>Status</legend>
@@ -463,6 +567,7 @@ function setup(){
     <button class="k2" id="btnNeuLaden">Vom Drive neu laden</button>
   </fieldset>
   <div class="aktionen"><button class="k2 k2-haupt" id="btnFertig">Fertig</button></div>`;
+  document.getElementById('cKal').onchange = e =>{ cfg.kalender = e.target.checked; lsSet('werkstatt-cfg', JSON.stringify(cfg)); };
   document.getElementById('btnVerbinden').onclick = async ()=>{
     cfg.clientId = document.getElementById('cId').value.trim();
     cfg.dateiName = document.getElementById('cDatei').value.trim() || 'werkstattauftraege-daten.json';
