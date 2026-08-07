@@ -1,0 +1,16 @@
+{
+  "name": "Werkstattaufträge",
+  "short_name": "Aufträge",
+  "description": "Motorradwerkstatt – Auftragsverwaltung mit Google-Drive-Synchronisation",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E7EBEE",
+  "theme_color": "#12171C",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

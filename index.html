@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12171C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Werkstattaufträge</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --zink:#E7EBEE; --blech:#FFFFFF; --tinte:#12171C; --stahl:#5C6772;
+    --kante:#C9D2D9; --oel:#B4690E; --signal:#D7263D; --gruen:#2F7A4C;
+    --radius:3px;
+    --display:'Oswald','Arial Narrow',system-ui,sans-serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SFMono-Regular','Roboto Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;overscroll-behavior-y:contain}
+  body{background:var(--zink);color:var(--tinte);font-family:var(--body);font-size:15px;line-height:1.45;
+       padding-bottom:env(safe-area-inset-bottom)}
+  button{font-family:inherit;font-size:inherit;cursor:pointer}
+  input,select,textarea{font-family:inherit;font-size:16px}
+  :focus-visible{outline:2px solid var(--oel);outline-offset:2px}
+
+  .kopf{position:sticky;top:0;z-index:20;background:var(--tinte);color:#fff;
+        padding:calc(9px + env(safe-area-inset-top)) 14px 9px;display:flex;align-items:center;gap:9px;
+        border-bottom:3px solid var(--oel)}
+  .kopf h1{font-family:var(--display);font-weight:500;font-size:17px;letter-spacing:.13em;
+           text-transform:uppercase;margin:0;flex:1}
+  .knopf{background:transparent;color:#fff;border:1px solid #46525E;border-radius:var(--radius);
+         padding:6px 10px;font-family:var(--display);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  .knopf-voll{background:var(--oel);border-color:var(--oel)}
+
+  .syncleiste{background:#DCE3E8;border-bottom:1px solid var(--kante);padding:6px 14px;
+              font-size:12px;color:var(--stahl);display:flex;gap:8px;align-items:center;font-family:var(--mono)}
+  .syncleiste .punkt{width:8px;height:8px;border-radius:50%;background:var(--stahl);flex:none}
+  .punkt.an{background:var(--gruen)} .punkt.aus{background:var(--signal)} .punkt.laeuft{background:var(--oel)}
+  .syncleiste button{margin-left:auto;background:none;border:0;color:var(--oel);font-family:var(--mono);font-size:12px;padding:2px 4px}
+
+  .reiter-zeile{display:flex;gap:7px;overflow-x:auto;padding:10px 14px;background:var(--zink);
+                border-bottom:1px solid var(--kante);position:sticky;z-index:15;-webkit-overflow-scrolling:touch}
+  .reiter-zeile::-webkit-scrollbar{display:none}
+  .reiter{background:var(--blech);border:1px solid var(--kante);border-radius:20px;padding:6px 13px;
+          font-size:13px;color:var(--stahl);white-space:nowrap;display:inline-flex;gap:6px;align-items:center}
+  .reiter[aria-pressed="true"]{background:var(--tinte);border-color:var(--tinte);color:#fff}
+  .reiter .n{font-family:var(--mono);font-size:11px;opacity:.75}
+
+  .suchfeld{margin:10px 14px 0;width:calc(100% - 28px);padding:9px 12px;border:1px solid var(--kante);
+            border-radius:var(--radius);background:var(--blech)}
+
+  .liste{padding:12px 14px 96px;display:grid;gap:10px}
+  .karte{background:var(--blech);border:1px solid var(--kante);border-left:5px solid var(--stahl);
+         border-radius:var(--radius);padding:12px 14px;text-align:left;width:100%;display:block;position:relative}
+  .karte .nr{font-family:var(--mono);font-size:11px;color:var(--stahl)}
+  .karte .fzg{font-family:var(--display);font-size:18px;font-weight:500;margin:2px 0 1px;padding-right:58px}
+  .karte .kunde{font-size:13px;color:var(--stahl)}
+  .karte .anliegen{margin-top:8px;padding-top:8px;border-top:1px dashed var(--kante);font-size:13.5px;
+                   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .karte .fuss{margin-top:8px;display:flex;justify-content:space-between;font-family:var(--mono);
+               font-size:12px;color:var(--stahl)}
+  .karte .summe{color:var(--tinte);font-size:14px}
+  .kennz{display:inline-block;font-family:var(--mono);font-weight:600;font-size:11px;border:1.5px solid var(--tinte);
+         border-left:6px solid #1E4DA8;border-radius:3px;padding:1px 5px 1px 3px;background:#fff}
+  .plakette{position:absolute;top:11px;right:12px;width:46px;height:46px;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:10px;
+            text-transform:uppercase;color:#1a1a1a;border:2px solid rgba(18,23,28,.55);font-weight:600}
+  .s-angenommen{background:#F2A03D} .s-arbeit{background:#8FD0F0} .s-teile{background:#F4E04D}
+  .s-fertig{background:#7FCB8F} .s-abgeholt{background:#DCD9D2;color:#6A6A6A}
+  .k-angenommen{border-left-color:#F2A03D} .k-arbeit{border-left-color:#3FA3D8} .k-teile{border-left-color:#D9BF1E}
+  .k-fertig{border-left-color:var(--gruen)} .k-abgeholt{border-left-color:#B9B9B9;opacity:.72}
+
+  .neu{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:25;
+       background:var(--oel);color:#fff;border:0;border-radius:28px;padding:14px 20px;
+       font-family:var(--display);letter-spacing:.09em;text-transform:uppercase;font-size:14px;
+       box-shadow:0 4px 14px rgba(18,23,28,.3)}
+
+  .leer{text-align:center;color:var(--stahl);padding:50px 24px}
+  .leer h2{font-family:var(--display);letter-spacing:.1em;text-transform:uppercase;font-size:16px;color:var(--tinte)}
+
+  .blatt{position:fixed;inset:0;z-index:40;background:var(--blech);overflow-y:auto;display:flex;flex-direction:column}
+  .blatt[hidden]{display:none}
+  .blatt-kopf{position:sticky;top:0;background:var(--tinte);color:#fff;z-index:2;
+              padding:calc(10px + env(safe-area-inset-top)) 14px 10px;display:flex;gap:9px;align-items:center}
+  .blatt-kopf .titel{flex:1;font-family:var(--display);letter-spacing:.09em;text-transform:uppercase;font-size:15px}
+  .blatt-inhalt{padding:14px;flex:1}
+  fieldset{border:0;border-top:1px solid var(--kante);margin:0;padding:13px 0 6px}
+  legend{font-family:var(--display);font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--oel)}
+  label{display:block;font-size:12px;color:var(--stahl);margin-bottom:3px}
+  .feld{width:100%;padding:10px;border:1px solid var(--kante);border-radius:var(--radius);
+        background:#FBFCFD;margin-bottom:10px}
+  textarea.feld{min-height:66px;resize:vertical}
+  .zeile{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+
+  .statuswahl{display:grid;grid-template-columns:repeat(auto-fit,minmax(94px,1fr));gap:6px;margin-bottom:12px}
+  .statuswahl button{border:1px solid var(--kante);background:#fff;border-radius:var(--radius);padding:9px 4px;
+                     font-size:12px;color:var(--stahl)}
+  .statuswahl button[aria-pressed="true"]{background:var(--tinte);border-color:var(--tinte);color:#fff}
+
+  .pos{display:grid;grid-template-columns:1fr 58px 70px 34px;gap:6px;margin-bottom:6px}
+  .pos .feld{margin-bottom:0;padding:9px 7px}
+  .pos-kopf{display:grid;grid-template-columns:1fr 58px 70px 34px;gap:6px;font-size:11px;color:var(--stahl);
+            text-transform:uppercase;margin-bottom:4px}
+  .weg{border:1px solid var(--kante);background:#fff;border-radius:var(--radius);color:var(--stahl)}
+  .plus{background:#fff;border:1px dashed var(--kante);border-radius:var(--radius);padding:8px 12px;
+        color:var(--stahl);font-size:13px}
+
+  .summen{background:#F4F7F9;border:1px solid var(--kante);border-radius:var(--radius);padding:11px 13px;
+          margin-top:8px;font-family:var(--mono);font-size:13px}
+  .summen div{display:flex;justify-content:space-between;padding:2px 0}
+  .summen .brutto{border-top:2px solid var(--tinte);margin-top:6px;padding-top:6px;font-size:16px;
+                  font-family:var(--display);font-weight:600}
+
+  .aktionen{position:sticky;bottom:0;background:var(--blech);border-top:1px solid var(--kante);
+            padding:12px 14px calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px}
+  .k2{border:1px solid var(--kante);background:#fff;border-radius:var(--radius);padding:11px 14px;
+      font-family:var(--display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;flex:1}
+  .k2-haupt{background:var(--tinte);border-color:var(--tinte);color:#fff}
+  .k2-loeschen{flex:none;color:var(--stahl)}
+  .k2-loeschen:hover{color:var(--signal);border-color:var(--signal)}
+
+  .meldung{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom));
+           z-index:60;background:var(--tinte);color:#fff;padding:9px 16px;border-radius:20px;font-size:13.5px;
+           max-width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  .meldung[hidden]{display:none}
+  .meldung.fehler{background:var(--signal)}
+  .notiz{font-size:12.5px;color:var(--stahl);margin:0 0 10px}
+  code{font-family:var(--mono);font-size:12px;background:#F1F4F6;padding:1px 4px;border-radius:2px;word-break:break-all}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="kopf">
+  <h1>Aufträge</h1>
+  <button class="knopf" id="btnSync">Sync</button>
+  <button class="knopf" id="btnSetup">Konto</button>
+</header>
+
+<div class="syncleiste"><span class="punkt" id="punkt"></span><span id="syncText">Nicht verbunden</span>
+  <button id="btnJetzt">Aktualisieren</button></div>
+
+<div class="reiter-zeile" id="reiter"></div>
+<input class="suchfeld" id="suche" type="search" placeholder="Kunde, Kennzeichen, Modell …">
+<main class="liste" id="liste"></main>
+<button class="neu" id="btnNeu">+ Auftrag</button>
+
+<section class="blatt" id="blatt" hidden>
+  <div class="blatt-kopf"><span class="titel" id="blattTitel">Auftrag</span>
+    <button class="knopf" id="btnZurueck">Zurück</button></div>
+  <div class="blatt-inhalt" id="blattInhalt"></div>
+</section>
+
+<div class="meldung" id="meldung" hidden></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const STATUS = [
+  {id:'angenommen', label:'Angenommen', kurz:'Ang'},
+  {id:'arbeit',     label:'In Arbeit',  kurz:'Arb'},
+  {id:'teile',      label:'Auf Teile',  kurz:'Teile'},
+  {id:'fertig',     label:'Fertig',     kurz:'Fertig'},
+  {id:'abgeholt',   label:'Abgeholt',   kurz:'Abg'}
+];
+const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
+const SCOPE = 'https://www.googleapis.com/auth/drive';
+
+let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json'};
+let daten = {version:1, settings:Object.assign({},VORGABE), auftraege:[]};
+let dateiId = null, standDrive = null, token = null, tokenClient = null;
+let filter = 'offen', suchtext = '', entwurf = null, aktuelleId = null, syncLaeuft = false;
+
+/* ---------- Werkzeug ---------- */
+const z = v => { const n = parseFloat(String(v).replace(',','.')); return isNaN(n)?0:n; };
+const eur = n => n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
+const datum = s => s ? new Date(s+'T00:00:00').toLocaleDateString('de-DE') : '–';
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function summen(a){
+  const arbeit = (a.arbeit||[]).reduce((s,p)=>s+z(p.std)*z(p.satz),0);
+  const teile  = (a.teile||[]).reduce((s,p)=>s+z(p.menge)*z(p.preis),0);
+  const netto = arbeit+teile;
+  const satz = daten.settings.kleinunternehmer ? 0 : z(daten.settings.mwst);
+  const steuer = netto*satz/100;
+  return {arbeit,teile,netto,steuer,brutto:netto+steuer,satz};
+}
+function neueNummer(){
+  const j = new Date().getFullYear();
+  const max = daten.auftraege.filter(a=>(a.nummer||'').startsWith(j+'-'))
+    .reduce((m,a)=>Math.max(m,parseInt((a.nummer||'').split('-')[1]||0,10)),0);
+  return j+'-'+String(max+1).padStart(3,'0');
+}
+let meldeLauf=null;
+function melden(t,fehler){
+  const e=document.getElementById('meldung');
+  e.textContent=t; e.className='meldung'+(fehler?' fehler':''); e.hidden=false;
+  clearTimeout(meldeLauf); meldeLauf=setTimeout(()=>e.hidden=true, fehler?6000:2000);
+}
+function lsGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
+function lsSet(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
+function zustand(art, text){
+  document.getElementById('punkt').className = 'punkt '+art;
+  document.getElementById('syncText').textContent = text;
+}
+
+/* ---------- Anmeldung & Drive ---------- */
+function gisBereit(){ return typeof google !== 'undefined' && google.accounts && google.accounts.oauth2; }
+function anmelden(interaktiv){
+  return new Promise((ok,fehl)=>{
+    if(!cfg.clientId) return fehl(new Error('Keine Client-ID hinterlegt'));
+    if(!gisBereit()) return fehl(new Error('Google-Anmeldung nicht geladen – Internetverbindung prüfen'));
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId, scope: SCOPE,
+      callback: r => r.access_token ? (token=r.access_token, ok(token)) : fehl(new Error('Anmeldung abgebrochen')),
+      error_callback: e => fehl(new Error(e && e.type === 'popup_closed' ? 'Anmeldefenster geschlossen' : 'Anmeldung fehlgeschlagen'))
+    });
+    tokenClient.requestAccessToken({prompt: interaktiv ? 'consent' : ''});
+  });
+}
+async function api(url, opt){
+  opt = opt || {};
+  if(!token) await anmelden(false);
+  const ruf = () => fetch(url, Object.assign({}, opt, {
+    headers: Object.assign({Authorization:'Bearer '+token}, opt.headers||{})
+  }));
+  let r = await ruf();
+  if(r.status === 401){ token = null; await anmelden(false); r = await ruf(); }
+  if(!r.ok) throw new Error('Drive meldet ' + r.status);
+  return r;
+}
+async function dateiSuchen(){
+  const q = encodeURIComponent("name = '" + cfg.dateiName.replace(/'/g,"\\'") + "' and trashed = false");
+  const r = await api('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name,modifiedTime)&pageSize=10');
+  const j = await r.json();
+  if(!j.files || !j.files.length) throw new Error('Datei ' + cfg.dateiName + ' nicht in Drive gefunden');
+  dateiId = j.files[0].id;
+  return j.files[0];
+}
+async function standLesen(){
+  const r = await api('https://www.googleapis.com/drive/v3/files/'+dateiId+'?fields=modifiedTime');
+  return (await r.json()).modifiedTime;
+}
+async function holen(still){
+  if(syncLaeuft) return;
+  syncLaeuft = true;
+  try{
+    zustand('laeuft','Lade …');
+    if(!dateiId) await dateiSuchen();
+    const r = await api('https://www.googleapis.com/drive/v3/files/'+dateiId+'?alt=media');
+    const g = await r.json();
+    daten = Object.assign({version:1,auftraege:[]}, g);
+    daten.settings = Object.assign({}, VORGABE, g.settings||{});
+    daten.auftraege = Array.isArray(g.auftraege) ? g.auftraege : [];
+    standDrive = await standLesen();
+    lsSet('werkstatt-cache', JSON.stringify(daten));
+    render();
+    zustand('an','Stand ' + new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+    if(!still) melden(daten.auftraege.length + ' Aufträge geladen');
+  }catch(e){
+    zustand('aus', e.message);
+    if(!still) melden(e.message, true);
+  }finally{ syncLaeuft = false; }
+}
+async function schreiben(){
+  if(!dateiId) await dateiSuchen();
+  const jetzt = await standLesen();
+  if(standDrive && jetzt !== standDrive){
+    if(!confirm('Die Datei wurde zwischenzeitlich auf einem anderen Gerät geändert.\n\nOK = Deine Änderung trotzdem speichern (die andere geht verloren)\nAbbrechen = erst neu laden')){
+      await holen(); throw new Error('Nicht gespeichert – bitte Änderung erneut eintragen');
+    }
+  }
+  const r = await api('https://www.googleapis.com/upload/drive/v3/files/'+dateiId+'?uploadType=media',
+    {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(daten, null, 2)});
+  standDrive = (await r.json()).modifiedTime || await standLesen();
+  lsSet('werkstatt-cache', JSON.stringify(daten));
+  zustand('an','Gespeichert ' + new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
+}
+async function sichern(){
+  try{ zustand('laeuft','Speichere …'); await schreiben(); melden('In Drive gespeichert'); }
+  catch(e){ zustand('aus','Nicht gespeichert'); melden(e.message, true); }
+}
+
+/* ---------- Liste ---------- */
+function sichtbar(){
+  let l = daten.auftraege.slice();
+  if(filter === 'offen') l = l.filter(a=>a.status!=='abgeholt');
+  else if(filter !== 'alle') l = l.filter(a=>a.status===filter);
+  if(suchtext){ const q = suchtext.toLowerCase(); l = l.filter(a=>JSON.stringify(a).toLowerCase().includes(q)); }
+  const rang = {angenommen:0,teile:1,arbeit:2,fertig:3,abgeholt:4};
+  return l.sort((x,y)=> (rang[x.status]-rang[y.status]) || (x.termin||'9999').localeCompare(y.termin||'9999'));
+}
+function renderReiter(){
+  const zahl = id => id==='offen' ? daten.auftraege.filter(a=>a.status!=='abgeholt').length
+    : id==='alle' ? daten.auftraege.length : daten.auftraege.filter(a=>a.status===id).length;
+  const r = [{id:'offen',label:'Offen'}].concat(STATUS.map(s=>({id:s.id,label:s.label}))).concat([{id:'alle',label:'Alle'}]);
+  const el = document.getElementById('reiter');
+  el.innerHTML = r.map(x=>`<button class="reiter" data-f="${x.id}" aria-pressed="${filter===x.id}">${x.label}<span class="n">${zahl(x.id)}</span></button>`).join('');
+  el.querySelectorAll('.reiter').forEach(b=> b.onclick = ()=>{ filter=b.dataset.f; render(); });
+}
+function renderListe(){
+  const l = sichtbar(), el = document.getElementById('liste');
+  if(!l.length){
+    el.innerHTML = `<div class="leer"><h2>${daten.auftraege.length?'Nichts in dieser Ansicht':'Keine Aufträge'}</h2>
+      <p>${daten.auftraege.length?'Anderen Reiter wählen.':'Über Konto verbinden oder unten einen Auftrag anlegen.'}</p></div>`;
+    return;
+  }
+  el.innerHTML = l.map(a=>{
+    const s = summen(a), st = STATUS.find(x=>x.id===a.status)||STATUS[0];
+    const fzg = [a.fahrzeug?.marke,a.fahrzeug?.modell].filter(Boolean).join(' ') || 'Fahrzeug offen';
+    return `<button class="karte k-${a.status}" data-id="${a.id}">
+      <div class="plakette s-${a.status}">${st.kurz}</div>
+      <div class="nr">${esc(a.nummer)}</div>
+      <div class="fzg">${esc(fzg)}</div>
+      <div class="kunde">${esc(a.kunde?.name||'Kunde offen')}${a.fahrzeug?.kennzeichen?' · <span class="kennz">'+esc(a.fahrzeug.kennzeichen)+'</span>':''}</div>
+      ${a.anliegen?`<div class="anliegen">${esc(a.anliegen)}</div>`:''}
+      <div class="fuss"><span>${a.termin?'Termin '+datum(a.termin):'angelegt '+datum(a.angelegt)}</span>
+        <span class="summe">${eur(s.brutto)}</span></div></button>`;
+  }).join('');
+  el.querySelectorAll('.karte').forEach(k=> k.onclick = ()=> editor(k.dataset.id));
+}
+function render(){ renderReiter(); renderListe(); }
+
+/* ---------- Editor ---------- */
+function leerAuftrag(){
+  return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
+    angelegt:new Date().toISOString().slice(0,10), termin:'',
+    kunde:{name:'',telefon:'',email:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
+    anliegen:'', notiz:'', arbeit:[], teile:[]};
+}
+function posZeile(art,p,i){
+  const A = art==='arbeit';
+  return `<div class="pos" data-art="${art}" data-i="${i}">
+    <input class="feld" data-f="bez" placeholder="${A?'Arbeitsschritt':'Teil'}" value="${esc(p.bez)}">
+    <input class="feld" data-f="${A?'std':'menge'}" type="number" inputmode="decimal" step="${A?'0.25':'1'}" placeholder="${A?'Std':'Anz'}" value="${esc(A?p.std:p.menge)}">
+    <input class="feld" data-f="${A?'satz':'preis'}" type="number" inputmode="decimal" step="0.01" placeholder="€" value="${esc(A?p.satz:p.preis)}">
+    <button class="weg" data-weg="${art}:${i}" aria-label="Entfernen">✕</button></div>`;
+}
+function editor(id){
+  aktuelleId = id;
+  entwurf = id ? JSON.parse(JSON.stringify(daten.auftraege.find(a=>a.id===id))) : leerAuftrag();
+  entwurf.arbeit = entwurf.arbeit||[]; entwurf.teile = entwurf.teile||[];
+  entwurf.kunde = entwurf.kunde||{}; entwurf.fahrzeug = entwurf.fahrzeug||{};
+  document.getElementById('blattTitel').textContent = (id?'Auftrag ':'Neu ')+entwurf.nummer;
+  zeichne();
+  document.getElementById('blatt').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function zurueck(){
+  document.getElementById('blatt').hidden = true;
+  document.body.style.overflow = ''; entwurf = null; aktuelleId = null;
+}
+function zeichne(){
+  const a = entwurf, s = summen(a);
+  document.getElementById('blattInhalt').innerHTML = `
+  <div class="statuswahl">${STATUS.map(x=>`<button data-st="${x.id}" aria-pressed="${a.status===x.id}">${x.label}</button>`).join('')}</div>
+  <label for="fTermin">Termin</label><input class="feld" id="fTermin" type="date" value="${esc(a.termin)}">
+  <fieldset><legend>Kunde</legend>
+    <input class="feld" id="kName" placeholder="Name" value="${esc(a.kunde.name||'')}">
+    <div class="zeile">
+      <input class="feld" id="kTel" type="tel" placeholder="Telefon" value="${esc(a.kunde.telefon||'')}">
+      <input class="feld" id="kMail" type="email" placeholder="E-Mail" value="${esc(a.kunde.email||'')}">
+    </div>
+  </fieldset>
+  <fieldset><legend>Fahrzeug</legend>
+    <div class="zeile">
+      <input class="feld" id="fMarke" placeholder="Marke" value="${esc(a.fahrzeug.marke||'')}">
+      <input class="feld" id="fModell" placeholder="Modell" value="${esc(a.fahrzeug.modell||'')}">
+    </div>
+    <div class="zeile">
+      <input class="feld" id="fKennz" placeholder="Kennzeichen" value="${esc(a.fahrzeug.kennzeichen||'')}">
+      <input class="feld" id="fKm" type="number" inputmode="numeric" placeholder="km-Stand" value="${esc(a.fahrzeug.km||'')}">
+    </div>
+    <input class="feld" id="fFin" placeholder="FIN" value="${esc(a.fahrzeug.fin||'')}">
+  </fieldset>
+  <fieldset><legend>Auftrag</legend>
+    <label for="fAnliegen">Auftragsumfang</label><textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
+    <label for="fNotiz">Interne Notiz</label><textarea class="feld" id="fNotiz">${esc(a.notiz)}</textarea>
+  </fieldset>
+  <fieldset><legend>Arbeitszeit</legend>
+    <div class="pos-kopf"><span>Schritt</span><span>Std</span><span>€/Std</span><span></span></div>
+    ${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}
+    <button class="plus" data-plus="arbeit">+ Arbeit</button></fieldset>
+  <fieldset><legend>Teile</legend>
+    <div class="pos-kopf"><span>Bezeichnung</span><span>Anz</span><span>Einzel €</span><span></span></div>
+    ${a.teile.map((p,i)=>posZeile('teile',p,i)).join('')}
+    <button class="plus" data-plus="teile">+ Teil</button></fieldset>
+  <div class="summen">
+    <div><span>Arbeit</span><span>${eur(s.arbeit)}</span></div>
+    <div><span>Teile</span><span>${eur(s.teile)}</span></div>
+    ${s.satz?`<div><span>zzgl. ${s.satz} % USt</span><span>${eur(s.steuer)}</span></div>`:`<div><span>ohne USt (§ 19)</span><span>–</span></div>`}
+    <div class="brutto"><span>Gesamt</span><span>${eur(s.brutto)}</span></div>
+  </div>
+  <div class="aktionen">
+    <button class="k2 k2-haupt" id="btnSpeichern">Speichern</button>
+    ${aktuelleId?'<button class="k2 k2-loeschen" id="btnLoeschen">Löschen</button>':''}
+  </div>`;
+  const i = document.getElementById('blattInhalt');
+  i.querySelectorAll('[data-st]').forEach(b=> b.onclick = ()=>{ uebernehmen(); entwurf.status = b.dataset.st; zeichne(); });
+  i.querySelectorAll('[data-plus]').forEach(b=> b.onclick = ()=>{
+    uebernehmen();
+    if(b.dataset.plus==='arbeit') entwurf.arbeit.push({bez:'',std:'',satz:daten.settings.stundensatz});
+    else entwurf.teile.push({bez:'',menge:1,preis:''});
+    zeichne();
+  });
+  i.querySelectorAll('[data-weg]').forEach(b=> b.onclick = ()=>{
+    uebernehmen(); const [art,n] = b.dataset.weg.split(':'); entwurf[art].splice(+n,1); zeichne();
+  });
+  i.querySelectorAll('.pos .feld').forEach(f=> f.onchange = ()=>{ uebernehmen(); zeichne(); });
+  document.getElementById('btnSpeichern').onclick = speichernAuftrag;
+  const d = document.getElementById('btnLoeschen');
+  if(d) d.onclick = async ()=>{
+    if(!confirm('Auftrag '+entwurf.nummer+' löschen?')) return;
+    daten.auftraege = daten.auftraege.filter(x=>x.id!==aktuelleId);
+    zurueck(); render(); await sichern();
+  };
+}
+function uebernehmen(){
+  const v = id => (document.getElementById(id)||{}).value || '';
+  entwurf.termin = v('fTermin');
+  entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
+  entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
+                      fin:v('fFin').toUpperCase(), km:v('fKm')};
+  entwurf.anliegen = v('fAnliegen'); entwurf.notiz = v('fNotiz');
+  document.querySelectorAll('#blattInhalt .pos').forEach(p=>{
+    const art = p.dataset.art, n = +p.dataset.i;
+    p.querySelectorAll('.feld').forEach(f=> entwurf[art][n][f.dataset.f] = f.value);
+  });
+}
+async function speichernAuftrag(){
+  uebernehmen();
+  entwurf.arbeit = entwurf.arbeit.filter(p=>p.bez||z(p.std));
+  entwurf.teile = entwurf.teile.filter(p=>p.bez||z(p.preis));
+  if(!entwurf.kunde.name && !entwurf.fahrzeug.kennzeichen && !entwurf.anliegen){
+    melden('Mindestens Kunde, Kennzeichen oder Auftragsumfang ausfüllen.', true); return;
+  }
+  const i = daten.auftraege.findIndex(a=>a.id===entwurf.id);
+  if(i>=0) daten.auftraege[i] = entwurf; else daten.auftraege.unshift(entwurf);
+  zurueck(); render(); await sichern();
+}
+
+/* ---------- Konto & Einrichtung ---------- */
+function setup(){
+  aktuelleId = null;
+  document.getElementById('blattTitel').textContent = 'Konto & Datei';
+  document.getElementById('blattInhalt').innerHTML = `
+  <fieldset><legend>Google-Verbindung</legend>
+    <p class="notiz">Die App liest und schreibt genau die JSON-Datei, die auch das Werkstatt-Tool am PC verwendet.
+      Die Client-ID stammt aus Deinem Google-Cloud-Projekt (siehe Einrichtungsanleitung).</p>
+    <label for="cId">OAuth Client-ID</label>
+    <input class="feld" id="cId" placeholder="…apps.googleusercontent.com" value="${esc(cfg.clientId)}">
+    <label for="cDatei">Dateiname in Drive</label>
+    <input class="feld" id="cDatei" value="${esc(cfg.dateiName)}">
+    <button class="k2" id="btnVerbinden" style="margin-top:4px">Mit Google verbinden</button>
+  </fieldset>
+  <fieldset><legend>Status</legend>
+    <p class="notiz">${dateiId ? 'Verbunden mit <code>'+esc(cfg.dateiName)+'</code>. Aufträge: '+daten.auftraege.length
+      : 'Noch keine Datei verbunden.'}</p>
+    <button class="k2" id="btnNeuLaden">Vom Drive neu laden</button>
+  </fieldset>
+  <div class="aktionen"><button class="k2 k2-haupt" id="btnFertig">Fertig</button></div>`;
+  document.getElementById('btnVerbinden').onclick = async ()=>{
+    cfg.clientId = document.getElementById('cId').value.trim();
+    cfg.dateiName = document.getElementById('cDatei').value.trim() || 'werkstattauftraege-daten.json';
+    lsSet('werkstatt-cfg', JSON.stringify(cfg));
+    dateiId = null; token = null;
+    try{ await anmelden(true); await holen(); zurueck(); melden('Verbunden'); }
+    catch(e){ melden(e.message, true); }
+  };
+  document.getElementById('btnNeuLaden').onclick = async ()=>{ dateiId = null; await holen(); zurueck(); };
+  document.getElementById('btnFertig').onclick = ()=>{
+    cfg.clientId = document.getElementById('cId').value.trim();
+    cfg.dateiName = document.getElementById('cDatei').value.trim() || cfg.dateiName;
+    lsSet('werkstatt-cfg', JSON.stringify(cfg)); zurueck();
+  };
+  document.getElementById('blatt').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+/* ---------- Start ---------- */
+document.getElementById('btnNeu').onclick = ()=> editor(null);
+document.getElementById('btnZurueck').onclick = zurueck;
+document.getElementById('btnSetup').onclick = setup;
+document.getElementById('btnSync').onclick = ()=> holen();
+document.getElementById('btnJetzt').onclick = ()=> holen();
+document.getElementById('suche').oninput = e =>{ suchtext = e.target.value; renderListe(); };
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && dateiId && document.getElementById('blatt').hidden) holen(true); });
+
+(function start(){
+  try{ const c = JSON.parse(lsGet('werkstatt-cfg')||'null'); if(c) cfg = Object.assign(cfg,c); }catch(e){}
+  try{ const c = JSON.parse(lsGet('werkstatt-cache')||'null'); if(c && c.auftraege){ daten = c; daten.settings = Object.assign({},VORGABE,c.settings||{}); } }catch(e){}
+  render();
+  if(!cfg.clientId){ zustand('aus','Einrichtung nötig – auf Konto tippen'); return; }
+  zustand('','Bereit');
+  const warte = setInterval(()=>{ if(gisBereit()){ clearInterval(warte); holen(true); } }, 300);
+  setTimeout(()=>clearInterval(warte), 15000);
+})();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
