@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store, must-revalidate">
+<title>Werkstattaufträge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --zink:#E7EBEE;
+    --blech:#FFFFFF;
+    --tinte:#12171C;
+    --stahl:#5C6772;
+    --kante:#C9D2D9;
+    --oel:#B4690E;
+    --signal:#D7263D;
+    --gruen:#2F7A4C;
+    --radius:3px;
+    --display:'Oswald','Arial Narrow',system-ui,sans-serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:ui-monospace,'SFMono-Regular','Roboto Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--zink);
+    color:var(--tinte);
+    font-family:var(--body);
+    font-size:15px;
+    line-height:1.45;
+    -webkit-text-size-adjust:100%;
+  }
+  button{font-family:inherit;font-size:inherit;cursor:pointer}
+  input,select,textarea{font-family:inherit;font-size:16px}
+  :focus-visible{outline:2px solid var(--oel);outline-offset:2px}
+
+  /* ---------- Kopf ---------- */
+  .kopf{
+    position:sticky;top:0;z-index:20;
+    background:var(--tinte);color:#fff;
+    padding:10px 16px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    border-bottom:3px solid var(--oel);
+  }
+  .kopf h1{
+    font-family:var(--display);font-weight:500;
+    font-size:20px;letter-spacing:.14em;text-transform:uppercase;
+    margin:0;flex:1;white-space:nowrap;
+  }
+  .kopf .zaehler{font-family:var(--mono);font-size:12px;color:#9AA6B1;letter-spacing:.05em}
+  .knopf{
+    background:transparent;color:#fff;
+    border:1px solid #46525E;border-radius:var(--radius);
+    padding:7px 12px;
+    font-family:var(--display);font-size:13px;letter-spacing:.09em;text-transform:uppercase;
+  }
+  .knopf:hover{border-color:var(--oel);color:#FFD79A}
+  .knopf-voll{background:var(--oel);border-color:var(--oel);color:#fff;font-weight:500}
+  .knopf-voll:hover{background:#C97913;color:#fff}
+
+  /* ---------- Filterleiste ---------- */
+  .leiste{
+    position:sticky;top:53px;z-index:15;
+    background:var(--zink);
+    border-bottom:1px solid var(--kante);
+    padding:10px 16px;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  }
+  .reiter{
+    background:var(--blech);border:1px solid var(--kante);border-radius:20px;
+    padding:5px 12px;font-size:13px;color:var(--stahl);
+    display:inline-flex;align-items:center;gap:7px;
+  }
+  .reiter[aria-pressed="true"]{background:var(--tinte);border-color:var(--tinte);color:#fff}
+  .reiter .n{font-family:var(--mono);font-size:11px;opacity:.75}
+  .suche{
+    flex:1;min-width:150px;
+    padding:7px 11px;border:1px solid var(--kante);border-radius:var(--radius);
+    background:var(--blech);color:var(--tinte);
+  }
+
+  /* ---------- Auftragskarten ---------- */
+  .liste{padding:16px;display:grid;gap:12px;max-width:1100px;margin:0 auto;
+         grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .karte{
+    background:var(--blech);border:1px solid var(--kante);border-left:5px solid var(--stahl);
+    border-radius:var(--radius);padding:13px 15px;text-align:left;width:100%;
+    display:block;position:relative;
+    box-shadow:0 1px 0 rgba(18,23,28,.05);
+  }
+  .karte:hover{border-color:var(--stahl);border-left-color:var(--oel);box-shadow:0 3px 10px rgba(18,23,28,.09)}
+  .karte .nr{font-family:var(--mono);font-size:11px;color:var(--stahl);letter-spacing:.06em}
+  .karte .fzg{
+    font-family:var(--display);font-size:19px;font-weight:500;letter-spacing:.02em;
+    margin:2px 0 1px;padding-right:64px;
+  }
+  .karte .kunde{font-size:13px;color:var(--stahl)}
+  .karte .anliegen{
+    margin-top:9px;padding-top:9px;border-top:1px dashed var(--kante);
+    font-size:13.5px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .karte .fuss{
+    margin-top:9px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    font-family:var(--mono);font-size:12px;color:var(--stahl);
+  }
+  .karte .summe{font-size:14px;color:var(--tinte)}
+  .kennz{
+    display:inline-block;font-family:var(--mono);font-weight:600;font-size:11.5px;
+    border:1.5px solid var(--tinte);border-left:7px solid #1E4DA8;border-radius:3px;
+    padding:1px 6px 1px 4px;letter-spacing:.04em;background:#fff;
+  }
+
+  /* Signatur: Prüfplaketten-Badge für den Status */
+  .plakette{
+    position:absolute;top:12px;right:14px;
+    width:52px;height:52px;border-radius:50%;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:var(--display);text-transform:uppercase;letter-spacing:.04em;
+    font-size:9px;line-height:1.15;text-align:center;color:#1a1a1a;
+    border:2px solid rgba(18,23,28,.55);padding:3px;
+  }
+  .plakette b{font-size:15px;font-weight:600;display:block}
+  .s-angenommen{background:#F2A03D}
+  .s-arbeit{background:#8FD0F0}
+  .s-teile{background:#F4E04D}
+  .s-fertig{background:#7FCB8F}
+  .s-abgeholt{background:#DCD9D2;color:#6A6A6A;border-color:rgba(18,23,28,.3)}
+  .k-angenommen{border-left-color:#F2A03D}
+  .k-arbeit{border-left-color:#3FA3D8}
+  .k-teile{border-left-color:#D9BF1E}
+  .k-fertig{border-left-color:var(--gruen)}
+  .k-abgeholt{border-left-color:#B9B9B9;opacity:.72}
+
+  .leer{
+    max-width:520px;margin:60px auto;text-align:center;color:var(--stahl);padding:0 20px;
+  }
+  .leer h2{font-family:var(--display);font-weight:500;letter-spacing:.1em;text-transform:uppercase;
+           color:var(--tinte);font-size:17px}
+
+  /* ---------- Editor ---------- */
+  .huelle{
+    position:fixed;inset:0;background:rgba(18,23,28,.55);z-index:40;
+    display:flex;justify-content:center;align-items:flex-start;overflow-y:auto;padding:0;
+  }
+  .huelle[hidden]{display:none}
+  .blatt{
+    background:var(--blech);width:100%;max-width:760px;min-height:100%;
+    border-left:1px solid var(--kante);border-right:1px solid var(--kante);
+  }
+  .blatt-kopf{
+    position:sticky;top:0;background:var(--tinte);color:#fff;z-index:2;
+    padding:11px 16px;display:flex;gap:10px;align-items:center;
+  }
+  .blatt-kopf .titel{flex:1;font-family:var(--display);letter-spacing:.1em;text-transform:uppercase;font-size:16px}
+  .blatt-inhalt{padding:16px}
+  fieldset{border:0;border-top:1px solid var(--kante);margin:0 0 4px;padding:14px 0 8px}
+  legend{
+    font-family:var(--display);font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+    color:var(--oel);padding:0 8px 0 0;
+  }
+  .zeile{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+  label{display:block;font-size:12px;color:var(--stahl);margin-bottom:3px}
+  .feld{
+    width:100%;padding:8px 10px;border:1px solid var(--kante);border-radius:var(--radius);
+    background:#FBFCFD;color:var(--tinte);margin-bottom:10px;
+  }
+  .feld:focus{background:#fff;border-color:var(--stahl)}
+  textarea.feld{min-height:70px;resize:vertical}
+
+  .pos{display:grid;grid-template-columns:1fr 74px 84px 34px;gap:7px;align-items:start;margin-bottom:7px}
+  .pos .feld{margin-bottom:0}
+  .pos-kopf{
+    display:grid;grid-template-columns:1fr 74px 84px 34px;gap:7px;
+    font-size:11px;color:var(--stahl);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;
+  }
+  .weg{
+    border:1px solid var(--kante);background:#fff;border-radius:var(--radius);
+    color:var(--stahl);height:35px;line-height:1;
+  }
+  .weg:hover{border-color:var(--signal);color:var(--signal)}
+  .plus{
+    background:#fff;border:1px dashed var(--kante);border-radius:var(--radius);
+    padding:7px 12px;color:var(--stahl);font-size:13px;margin-top:2px;
+  }
+  .plus:hover{border-color:var(--oel);color:var(--oel)}
+
+  .summen{
+    background:#F4F7F9;border:1px solid var(--kante);border-radius:var(--radius);
+    padding:12px 14px;margin-top:6px;font-family:var(--mono);font-size:13.5px;
+  }
+  .summen div{display:flex;justify-content:space-between;padding:2px 0}
+  .summen .brutto{
+    border-top:2px solid var(--tinte);margin-top:7px;padding-top:7px;
+    font-size:17px;font-weight:600;font-family:var(--display);letter-spacing:.03em;
+  }
+  .aktionen{
+    position:sticky;bottom:0;background:var(--blech);border-top:1px solid var(--kante);
+    padding:12px 16px;display:flex;gap:9px;flex-wrap:wrap;
+  }
+  .k2{
+    border:1px solid var(--kante);background:#fff;color:var(--tinte);
+    border-radius:var(--radius);padding:9px 14px;
+    font-family:var(--display);font-size:13px;letter-spacing:.09em;text-transform:uppercase;
+  }
+  .k2:hover{border-color:var(--stahl)}
+  .k2-loeschen:hover{border-color:var(--signal);color:var(--signal)}
+  .k2-haupt{background:var(--tinte);border-color:var(--tinte);color:#fff}
+  .k2-haupt:hover{background:#000;color:#fff}
+
+  .notiz{font-size:12px;color:var(--stahl);margin:2px 0 10px}
+  .status-meldung{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:60;
+    background:var(--tinte);color:#fff;padding:9px 16px;border-radius:20px;font-size:13.5px;
+    box-shadow:0 4px 16px rgba(0,0,0,.25);
+  }
+  .status-meldung[hidden]{display:none}
+  .fehler{background:var(--signal)}
+  .warnleiste{
+    background:#FFF3D6;border-bottom:1px solid #E2C06A;color:#5A4409;
+    padding:9px 16px;font-size:13.5px;
+  }
+  .warnleiste[hidden]{display:none}
+  .warnleiste strong{font-family:var(--display);letter-spacing:.06em;text-transform:uppercase;font-size:12px}
+
+  /* ---------- Druck (Auftragszettel) ---------- */
+  #druck{display:none}
+  @media print{
+    body{background:#fff}
+    .kopf,.leiste,.liste,.huelle,.status-meldung{display:none !important}
+    #druck{display:block;padding:0;font-size:12px}
+    #druck h2{font-family:var(--display);letter-spacing:.1em;text-transform:uppercase}
+    #druck table{width:100%;border-collapse:collapse;margin-top:6px}
+    #druck th,#druck td{border-bottom:1px solid #999;padding:4px 6px;text-align:left}
+    #druck td.r,#druck th.r{text-align:right}
+    #druck .kasten{border:1px solid #333;padding:8px 10px;margin-bottom:10px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+  @media (max-width:520px){
+    .liste{grid-template-columns:1fr;padding:12px}
+    .kopf h1{font-size:17px;letter-spacing:.1em}
+    .pos,.pos-kopf{grid-template-columns:1fr 62px 74px 34px}
+  }
+</style>
+</head>
+<body>
+
+<header class="kopf">
+  <h1>Werkstattaufträge</h1>
+  <span class="zaehler" id="zaehler"></span>
+  <button class="knopf" id="btnSpeicherort" title="Speicherdatei festlegen">○ Speicherort</button>
+  <button class="knopf" id="btnEinstellungen">Einstellungen</button>
+  <button class="knopf" id="btnExport">Export</button>
+  <button class="knopf knopf-voll" id="btnNeu">+ Neuer Auftrag</button>
+</header>
+
+<div class="warnleiste" id="warnleiste" hidden></div>
+
+<nav class="leiste" id="leiste"></nav>
+
+<main class="liste" id="liste"></main>
+
+<div class="huelle" id="huelle" hidden>
+  <div class="blatt" role="dialog" aria-modal="true" aria-label="Auftrag bearbeiten">
+    <div class="blatt-kopf">
+      <span class="titel" id="blattTitel">Auftrag</span>
+      <button class="knopf" id="btnSchliessen">Schließen</button>
+    </div>
+    <div class="blatt-inhalt" id="blattInhalt"></div>
+  </div>
+</div>
+
+<div id="druck"></div>
+<div class="status-meldung" id="meldung" hidden></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+const KEY = 'werkstatt-v1';
+const VERSION = '2026-08-08 / 11';
+const STATUS = [
+  {id:'angenommen', label:'Angenommen', kurz:'Ang'},
+  {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
+  {id:'teile',      label:'Wartet auf Teile', kurz:'Teile'},
+  {id:'fertig',     label:'Fertig',      kurz:'Fertig'},
+  {id:'abgeholt',   label:'Abgeholt',    kurz:'Abg'}
+];
+const statusLabel = id => (STATUS.find(s=>s.id===id)||STATUS[0]).label;
+
+let daten = {version:1, settings:{stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''}, auftraege:[]};
+let filter = 'offen';
+let suchtext = '';
+let aktuelleId = null;
+let importModus = 'hinzu';
+
+/* ---------- Speicher: Datei > Claude > Browser ---------- */
+const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
+const kannDatei = typeof window.showSaveFilePicker === 'function';
+const hatClaudeSpeicher = typeof window.storage !== 'undefined' && !!window.storage;
+let dateiGriff = null;
+let merken = true;
+let letzteSicherung = null;
+
+function warnen(text, knopfText, knopfTat){
+  const w = document.getElementById('warnleiste');
+  w.innerHTML = text + (knopfText ? ' <button class="k2" id="warnKnopf" style="margin-left:8px;padding:5px 11px">'+knopfText+'</button>' : '');
+  w.hidden = false;
+  if(knopfText) document.getElementById('warnKnopf').onclick = knopfTat;
+}
+function warnungWeg(){ document.getElementById('warnleiste').hidden = true; }
+
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); return true; }catch(e){ return false; } }
+
+/* Dateigriff dauerhaft merken */
+function idb(){
+  return new Promise((ok,fehl)=>{
+    const r = indexedDB.open('werkstatt-speicher',1);
+    r.onupgradeneeded = ()=> r.result.createObjectStore('griffe');
+    r.onsuccess = ()=> ok(r.result);
+    r.onerror = ()=> fehl(r.error);
+  });
+}
+async function griffSchreiben(h){ try{ const db = await idb(); db.transaction('griffe','readwrite').objectStore('griffe').put(h,'aktuell'); }catch(e){} }
+async function griffLesen(){
+  try{
+    const db = await idb();
+    return await new Promise(ok=>{
+      const r = db.transaction('griffe').objectStore('griffe').get('aktuell');
+      r.onsuccess = ()=> ok(r.result || null);
+      r.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+async function griffLoeschen(){ try{ const db = await idb(); db.transaction('griffe','readwrite').objectStore('griffe').delete('aktuell'); }catch(e){} }
+
+function uebernehmeDaten(g){
+  daten = Object.assign({version:1, auftraege:[]}, g);
+  daten.settings = Object.assign({}, VORGABE, g.settings || {});
+  daten.auftraege = Array.isArray(g.auftraege) ? g.auftraege : [];
+}
+async function dateiLesen(h){
+  const t = (await (await h.getFile()).text()).trim();
+  if(!t) return null;
+  const g = JSON.parse(t);
+  if(!Array.isArray(g.auftraege)) throw new Error('Format');
+  return g;
+}
+async function rechtePruefen(h, fragen){
+  const o = {mode:'readwrite'};
+  if(await h.queryPermission(o) === 'granted') return true;
+  return fragen ? (await h.requestPermission(o)) === 'granted' : false;
+}
+async function sofortSchreiben(){
+  if(!dateiGriff) return false;
+  const s = await dateiGriff.createWritable();
+  await s.write(JSON.stringify(daten, null, 2));
+  await s.close();
+  letzteSicherung = new Date();
+  return true;
+}
+
+async function neueSpeicherdatei(){
+  try{
+    const h = await window.showSaveFilePicker({
+      suggestedName: 'werkstattauftraege-daten.json',
+      types: [{description:'Auftragsdaten', accept:{'application/json':['.json']}}]
+    });
+    dateiGriff = h;
+    merken ? await griffSchreiben(h) : await griffLoeschen();
+    await sofortSchreiben();
+    warnungWeg(); speicherStand();
+    melden('Neue Speicherdatei: ' + h.name);
+  }catch(e){ if(e.name !== 'AbortError') melden('Datei konnte nicht angelegt werden.', true); }
+}
+async function speicherdateiWaehlen(){
+  try{
+    const [h] = await window.showOpenFilePicker({types:[{description:'Auftragsdaten', accept:{'application/json':['.json']}}]});
+    if(!await rechtePruefen(h,true)){ melden('Kein Schreibrecht für diese Datei.', true); return; }
+    let g;
+    try{ g = await dateiLesen(h); }
+    catch(e){ melden('Das ist keine gültige Auftragsdatei.', true); return; }
+    if(g){
+      if(daten.auftraege.length && !confirm('Bestand aus ' + h.name + ' übernehmen? Die aktuell angezeigten Aufträge werden ersetzt.')) return;
+      uebernehmeDaten(g);
+    }
+    dateiGriff = h;
+    merken ? await griffSchreiben(h) : await griffLoeschen();
+    if(!g) await sofortSchreiben();
+    warnungWeg(); speicherStand(); render();
+    melden('Verbunden mit ' + h.name);
+  }catch(e){ if(e.name !== 'AbortError') melden('Datei konnte nicht geöffnet werden.', true); }
+}
+async function verbindungLoesen(){
+  dateiGriff = null; await griffLoeschen(); speicherStand();
+  melden('Speicherdatei getrennt – es wird wieder lokal gespeichert.');
+}
+
+function speicherStand(){
+  const b = document.getElementById('btnSpeicherort');
+  if(!b) return;
+  if(dateiGriff){
+    const zeit = letzteSicherung ? letzteSicherung.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) : '';
+    b.textContent = '● ' + dateiGriff.name + (zeit ? ' · ' + zeit : '');
+    b.title = 'Es wird in ' + dateiGriff.name + ' gespeichert';
+  }else{
+    b.textContent = kannDatei ? '○ Keine Speicherdatei' : '○ Speicherort';
+    b.title = 'Speicherdatei festlegen';
+  }
+}
+
+async function laden(){
+  merken = lsGet('werkstatt-merken') !== '0';
+  if(kannDatei){
+    const h = await griffLesen();
+    if(h){
+      if(await rechtePruefen(h, false)){
+        try{
+          const g = await dateiLesen(h);
+          if(g) uebernehmeDaten(g);
+          dateiGriff = h;
+          return;
+        }catch(e){
+          warnen('<strong>Speicherdatei nicht lesbar</strong> · ' + h.name + ' fehlt oder ist beschädigt. Prüfe, ob Google Drive den Ordner synchronisiert hat.', 'Andere Datei wählen', speicherdateiWaehlen);
+        }
+      }else{
+        warnen('<strong>Zugriff bestätigen</strong> · Gespeichert wird in ' + h.name + '. Der Browser fragt nach jedem Neustart einmal nach.', 'Speicherdatei verbinden', async ()=>{
+          if(await rechtePruefen(h, true)){
+            try{ const g = await dateiLesen(h); if(g) uebernehmeDaten(g); }catch(e){}
+            dateiGriff = h; warnungWeg(); speicherStand(); render();
+            melden('Verbunden mit ' + h.name);
+          }else melden('Zugriff wurde abgelehnt.', true);
+        });
+      }
+    }
+  }
+  if(hatClaudeSpeicher){
+    try{
+      const r = await window.storage.get(KEY);
+      if(r && r.value) uebernehmeDaten(JSON.parse(r.value));
+    }catch(e){}
+    return;
+  }
+  const roh = lsGet(KEY);
+  if(roh){ try{ uebernehmeDaten(JSON.parse(roh)); }catch(e){} }
+  if(!dateiGriff && kannDatei && !roh){
+    warnen('<strong>Noch keine Speicherdatei</strong> · Lege die Datei in Deinem Google-Drive-Ordner an, dann wird jede Änderung automatisch dorthin geschrieben.', 'Speicherdatei anlegen', neueSpeicherdatei);
+  }else if(!kannDatei){
+    warnen('<strong>Speicherdatei nicht möglich</strong> · Dieser Browser oder Aufrufweg erlaubt kein direktes Schreiben. Gespeichert wird nur hier im Browser – bitte regelmäßig über Einstellungen sichern.');
+  }
+}
+
+let speicherLauf = null;
+function speichern(still){
+  clearTimeout(speicherLauf);
+  speicherLauf = setTimeout(async ()=>{
+    let ok = false, ziel = '';
+    if(dateiGriff){
+      try{ await sofortSchreiben(); ok = true; ziel = ' → ' + dateiGriff.name; }
+      catch(e){
+        melden('Schreiben in ' + dateiGriff.name + ' fehlgeschlagen.', true);
+        warnen('<strong>Datei nicht beschreibbar</strong> · Zugriff auf ' + dateiGriff.name + ' erneut erlauben, sonst gehen Änderungen verloren.', 'Zugriff erlauben', async ()=>{
+          if(await rechtePruefen(dateiGriff, true)){ await sofortSchreiben(); warnungWeg(); speicherStand(); melden('Gespeichert'); }
+        });
+      }
+    }else if(hatClaudeSpeicher){
+      try{ ok = !!(await window.storage.set(KEY, JSON.stringify(daten))); }catch(e){}
+    }else{
+      ok = lsSet(KEY, JSON.stringify(daten));
+    }
+    if(!ok && !dateiGriff) melden('Nicht gespeichert – bitte Speicherdatei festlegen.', true);
+    else if(ok && !still) melden('Gespeichert' + ziel);
+    speicherStand();
+  }, 200);
+}
+let meldeLauf = null;
+function melden(text, fehler){
+  const el = document.getElementById('meldung');
+  el.textContent = text;
+  el.className = 'status-meldung' + (fehler ? ' fehler' : '');
+  el.hidden = false;
+  clearTimeout(meldeLauf);
+  meldeLauf = setTimeout(()=>{ el.hidden = true; }, fehler ? 6000 : 1800);
+}
+
+/* ---------- Rechnen & Formatieren ---------- */
+const z = v => { const n = parseFloat(String(v).replace(',','.')); return isNaN(n) ? 0 : n; };
+const eur = n => n.toLocaleString('de-DE',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
+const datum = s => s ? new Date(s+'T00:00:00').toLocaleDateString('de-DE') : '–';
+
+function summen(a){
+  const arbeit = (a.arbeit||[]).reduce((s,p)=> s + z(p.std)*z(p.satz), 0);
+  const teile  = (a.teile||[]).reduce((s,p)=> s + z(p.menge)*z(p.preis), 0);
+  const netto  = arbeit + teile;
+  const satz   = daten.settings.kleinunternehmer ? 0 : z(daten.settings.mwst);
+  const steuer = netto * satz/100;
+  return {arbeit, teile, netto, steuer, brutto: netto + steuer, satz};
+}
+function neueNummer(){
+  const jahr = new Date().getFullYear();
+  const max = daten.auftraege
+    .filter(a => (a.nummer||'').startsWith(jahr+'-'))
+    .reduce((m,a)=> Math.max(m, parseInt((a.nummer||'').split('-')[1]||0,10)), 0);
+  return jahr + '-' + String(max+1).padStart(3,'0');
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Google Kalender ---------- */
+const KAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const ZEITZONE = 'Europe/Berlin';
+const TERMINE = [
+  {feld:'termin', uhr:'uhrAnnahme', schl:'annahme', wort:'Annahme'},
+  {feld:'fertig', uhr:'uhrFertig',  schl:'fertig',  wort:'Fertigstellung'}
+];
+let kal = {clientId:'', konto:'', an:false};
+let kalToken = null, kalBis = 0;
+
+function kalLaden(){ try{ const g = JSON.parse(lsGet('werkstatt-kal')||'null'); if(g) kal = Object.assign(kal,g); }catch(e){} }
+function kalSichern(){ lsSet('werkstatt-kal', JSON.stringify(kal)); }
+function gisBereit(){ return typeof google !== 'undefined' && google.accounts && google.accounts.oauth2; }
+function kalGueltig(){ return !!kalToken && Date.now() < kalBis; }
+function kalTokenMerken(t, sek){
+  kalToken = t; kalBis = Date.now() + (Math.max(60, sek||3600)-90)*1000;
+  lsSet('werkstatt-kaltoken', JSON.stringify({t:kalToken, bis:kalBis}));
+}
+function kalTokenAusSpeicher(){
+  try{ const g = JSON.parse(lsGet('werkstatt-kaltoken')||'null');
+    if(g && g.t && Date.now() < g.bis){ kalToken = g.t; kalBis = g.bis; return true; } }catch(e){}
+  return false;
+}
+function kalAbmelden(){ kalToken = null; kalBis = 0; try{ localStorage.removeItem('werkstatt-kaltoken'); }catch(e){} }
+function kalAnmelden(interaktiv){
+  if(!interaktiv && kalGueltig()) return Promise.resolve(kalToken);
+  return new Promise((ok,fehl)=>{
+    if(!kal.clientId) return fehl(new Error('Keine Client-ID hinterlegt'));
+    if(!gisBereit()) return fehl(new Error('Google-Anmeldung nicht geladen – Internetverbindung prüfen'));
+    const c = google.accounts.oauth2.initTokenClient({
+      client_id: kal.clientId, scope: KAL_SCOPE,
+      callback: r => r.access_token ? (kalTokenMerken(r.access_token, r.expires_in), ok(kalToken)) : fehl(new Error('Anmeldung abgebrochen')),
+      error_callback: e => fehl(new Error(e && e.type === 'popup_closed' ? 'Anmeldefenster geschlossen' : 'Anmeldung fehlgeschlagen'))
+    });
+    const wunsch = {prompt: interaktiv ? 'consent' : ''};
+    if(kal.konto) wunsch.hint = kal.konto;
+    c.requestAccessToken(wunsch);
+  });
+}
+async function kalApi(url, opt){
+  opt = opt || {};
+  if(!kalGueltig()){
+    try{ await kalAnmelden(false); }
+    catch(e){ throw new Error('Kalender-Anmeldung abgelaufen – bitte unter Einstellungen → Google Kalender neu verbinden'); }
+  }
+  const ruf = ()=> fetch(url, Object.assign({}, opt, {headers: Object.assign({Authorization:'Bearer '+kalToken}, opt.headers||{})}));
+  let r = await ruf();
+  if(r.status === 401){
+    kalAbmelden();
+    try{ await kalAnmelden(false); }
+    catch(e){ throw new Error('Kalender-Anmeldung abgelaufen – bitte unter Einstellungen → Google Kalender neu verbinden'); }
+    r = await ruf();
+  }
+  if(!r.ok){
+    let grund = '';
+    try{
+      const j = await r.clone().json();
+      grund = (j.error && (j.error.message || j.error.status)) || '';
+    }catch(e){ try{ grund = (await r.clone().text()).slice(0,200); }catch(e2){} }
+    throw new Error('Kalender meldet ' + r.status + (grund ? ': ' + grund : ''));
+  }
+  return r;
+}
+function plusTag(iso){ const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); }
+function erinnerungMinuten(start){
+  const e = new Date(start); e.setDate(e.getDate()-1); e.setHours(14,0,0,0);
+  return Math.min(Math.max(Math.round((start-e)/60000), 5), 40320);
+}
+function terminObjekt(a, t){
+  const tag = a[t.feld];
+  if(!tag) return null;
+  const uhr = (a[t.uhr]||'').trim();
+  const fzg = [a.fahrzeug?.marke, a.fahrzeug?.modell].filter(Boolean).join(' ') || 'Fahrzeug';
+  const zeilen = ['Auftrag ' + (a.nummer||''), a.kunde?.name||''];
+  if(a.fahrzeug?.kennzeichen) zeilen.push('Kennzeichen ' + a.fahrzeug.kennzeichen);
+  zeilen.push(a.anliegen||'', a.notiz||'');
+  const ev = {summary: t.wort + ': ' + fzg + (a.kunde?.name ? ' – ' + a.kunde.name : ''),
+              description: zeilen.filter(Boolean).join('\n')};
+  let start;
+  if(uhr){
+    const [h,m] = uhr.split(':').map(Number);
+    start = new Date(tag+'T00:00:00'); start.setHours(h||0, m||0, 0, 0);
+    const ende = new Date(start.getTime() + 60*60000);
+    const iso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+      +'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00';
+    ev.start = {dateTime: iso(start), timeZone: ZEITZONE};
+    ev.end   = {dateTime: iso(ende),  timeZone: ZEITZONE};
+  }else{
+    start = new Date(tag+'T00:00:00');
+    ev.start = {date: tag}; ev.end = {date: plusTag(tag)};
+  }
+  const er = [{method:'popup', minutes: erinnerungMinuten(start)}];
+  if(uhr) er.push({method:'popup', minutes: 60});
+  ev.reminders = {useDefault:false, overrides: er};
+  return ev;
+}
+async function kalenderAbgleich(a){
+  const bilanz = {neu:0, geaendert:0, geloescht:0};
+  if(!kal.an) return bilanz;
+  a.kalender = a.kalender || {};
+  const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  for(const t of TERMINE){
+    const ev = terminObjekt(a, t), id = a.kalender[t.schl];
+    try{
+      if(!ev){ if(id){ await kalApi(basis+'/'+id, {method:'DELETE'}); delete a.kalender[t.schl]; bilanz.geloescht++; } continue; }
+      if(id){
+        await kalApi(basis+'/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
+        bilanz.geaendert++;
+      }else{
+        const r = await kalApi(basis+'?sendUpdates=none', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
+        a.kalender[t.schl] = (await r.json()).id; bilanz.neu++;
+      }
+    }catch(e){
+      if(id && /404|410/.test(e.message)){ delete a.kalender[t.schl]; continue; }
+      throw new Error('Kalender: ' + e.message);
+    }
+  }
+  return bilanz;
+}
+async function kalenderEntfernen(a){
+  const bilanz = {geloescht:0, offen:0};
+  if(!a || !a.kalender) return bilanz;
+  const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  for(const t of TERMINE){
+    const id = a.kalender[t.schl];
+    if(!id) continue;
+    try{ await kalApi(basis+'/'+id, {method:'DELETE'}); delete a.kalender[t.schl]; bilanz.geloescht++; }
+    catch(e){ if(/404|410/.test(e.message)) delete a.kalender[t.schl]; else bilanz.offen++; }
+  }
+  return bilanz;
+}
+
+async function kalenderPruefen(ausgabe){
+  const zeilen = [];
+  const sagen = (ok, text) => { zeilen.push((ok===null?'…':(ok?'OK  ':'FEHLER  ')) + text); ausgabe(zeilen); };
+  try{
+    if(location.protocol === 'file:'){
+      sagen(false, 'Die Seite läuft als Datei (file://). Google lehnt das ab – bitte über werkstatt-start.bat öffnen.');
+      return;
+    }
+    sagen(true, 'Programmstand ' + VERSION);
+    sagen(true, 'Aufruf über ' + location.origin);
+    if(!gisBereit()){
+      sagen(false, 'Die Google-Anmeldebibliothek ist nicht geladen. Internetverbindung prüfen, Seite neu laden (Strg+F5).');
+      return;
+    }
+    sagen(true, 'Google-Anmeldung geladen');
+    if(!kal.clientId){ sagen(false, 'Keine Client-ID eingetragen.'); return; }
+    sagen(true, 'Client-ID vorhanden');
+    if(!kal.an) sagen(false, 'Schalter "Termine im Google Kalender führen" ist aus – Termine werden nicht eingetragen.');
+    else sagen(true, 'Schalter ist an');
+    try{ await kalAnmelden(!kalGueltig()); sagen(true, 'Angemeldet'); }
+    catch(e){
+      sagen(false, 'Anmeldung: ' + e.message + '. Häufigste Ursache: ' + location.origin
+        + ' fehlt in der Cloud Console unter den autorisierten JavaScript-Quellen.');
+      return;
+    }
+    try{
+      const r = await kalApi('https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1');
+      const j = await r.json();
+      sagen(true, 'Kalender erreichbar' + (j.summary ? ': ' + j.summary : ''));
+      if(!kal.konto && j.summary && j.summary.includes('@')){ kal.konto = j.summary; kalSichern(); }
+    }catch(e){
+      sagen(false, 'Kalenderzugriff: ' + e.message
+        + (/403/.test(e.message) && /not been used|disabled|SERVICE_DISABLED/i.test(e.message)
+            ? ' → Die Google Calendar API ist im Cloud-Projekt nicht aktiviert. Cloud Console → APIs & Dienste → Bibliothek → "Google Calendar API" → Aktivieren.' : '')
+        + (/403/.test(e.message) && /SCOPE|permission|insufficient/i.test(e.message)
+            ? ' → Der Anmeldung fehlt die Kalenderberechtigung. Hier abmelden, neu verbinden und im Google-Fenster den Haken für den Kalender setzen.' : '')
+        + (/403/.test(e.message) && /project (\d+)/i.test(e.message)
+            ? ' → Google nennt Projekt ' + /project (\d+)/i.exec(e.message)[1]
+              + ', Deine Client-ID gehört zu Projekt ' + (kal.clientId.split('-')[0] || '?')
+              + '. Stimmen die Nummern nicht überein, wurde die API im falschen Projekt aktiviert.' : '')
+        + (/401/.test(e.message) ? ' – Berechtigung fehlt, bitte neu verbinden (dabei wird die Kalenderfreigabe abgefragt).' : ''));
+      return;
+    }
+    const heute = new Date(); heute.setDate(heute.getDate()+1);
+    const tag = heute.toISOString().slice(0,10);
+    const probe = {summary:'Testeintrag Werkstatt-Tool', start:{date:tag}, end:{date:plusTag(tag)},
+                   reminders:{useDefault:false, overrides:[{method:'popup', minutes:600}]}};
+    try{
+      const a = await kalApi('https://www.googleapis.com/calendar/v3/calendars/primary/events',
+        {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(probe)});
+      const id = (await a.json()).id;
+      sagen(true, 'Testeintrag angelegt');
+      await kalApi('https://www.googleapis.com/calendar/v3/calendars/primary/events/'+id, {method:'DELETE'});
+      sagen(true, 'Testeintrag wieder gelöscht – Kalender funktioniert' + (kal.an ? '.' : ', nur der Schalter ist noch aus.'));
+    }catch(e){ sagen(false, 'Schreiben in den Kalender: ' + e.message); }
+  }catch(e){ sagen(false, 'Unerwartet: ' + e.message); }
+}
+
+/* ---------- Liste ---------- */
+function sichtbar(){
+  let l = daten.auftraege.slice();
+  if(filter === 'offen') l = l.filter(a => a.status !== 'abgeholt');
+  else if(filter !== 'alle') l = l.filter(a => a.status === filter);
+  if(suchtext){
+    const q = suchtext.toLowerCase();
+    l = l.filter(a => JSON.stringify(a).toLowerCase().includes(q));
+  }
+  const rang = {angenommen:0, teile:1, arbeit:2, fertig:3, abgeholt:4};
+  return l.sort((x,y)=> (rang[x.status]-rang[y.status])
+    || ((x.fertig||x.termin||'9999').localeCompare(y.fertig||y.termin||'9999'))
+    || (y.angelegt||'').localeCompare(x.angelegt||''));
+}
+
+function renderLeiste(){
+  const zaehlung = id => id==='offen'
+    ? daten.auftraege.filter(a=>a.status!=='abgeholt').length
+    : id==='alle' ? daten.auftraege.length : daten.auftraege.filter(a=>a.status===id).length;
+  const reiter = [{id:'offen',label:'Offen'}].concat(STATUS.map(s=>({id:s.id,label:s.label}))).concat([{id:'alle',label:'Alle'}]);
+  const el = document.getElementById('leiste');
+  el.innerHTML = reiter.map(r =>
+    `<button class="reiter" data-f="${r.id}" aria-pressed="${filter===r.id}">${r.label}<span class="n">${zaehlung(r.id)}</span></button>`
+  ).join('') + `<input class="suche" id="suche" type="search" placeholder="Suche: Kennzeichen, Kunde, Modell …" value="${esc(suchtext)}">`;
+  el.querySelectorAll('.reiter').forEach(b => b.onclick = ()=>{ filter = b.dataset.f; render(); });
+  const s = document.getElementById('suche');
+  s.oninput = ()=>{ suchtext = s.value; renderListe(); };
+}
+
+function renderListe(){
+  const l = sichtbar();
+  const el = document.getElementById('liste');
+  document.getElementById('zaehler').textContent =
+    daten.auftraege.filter(a=>a.status!=='abgeholt').length + ' offen';
+
+  if(!l.length){
+    el.innerHTML = `<div class="leer">
+      <h2>${daten.auftraege.length ? 'Nichts in dieser Ansicht' : 'Noch kein Auftrag angelegt'}</h2>
+      <p>${daten.auftraege.length ? 'Anderen Reiter wählen oder Suche leeren.' : 'Leg den ersten Auftrag an: Kunde, Fahrzeug, Anliegen – Positionen kommen später dazu.'}</p>
+      <button class="k2 k2-haupt" onclick="editor(null)">Auftrag anlegen</button></div>`;
+    return;
+  }
+  el.innerHTML = l.map(a=>{
+    const s = summen(a);
+    const st = STATUS.find(x=>x.id===a.status) || STATUS[0];
+    const fzg = [a.fahrzeug?.marke, a.fahrzeug?.modell].filter(Boolean).join(' ') || 'Fahrzeug offen';
+    return `<button class="karte k-${a.status}" data-id="${a.id}">
+      <div class="plakette s-${a.status}"><b>${st.kurz}</b></div>
+      <div class="nr">${esc(a.nummer)}</div>
+      <div class="fzg">${esc(fzg)}</div>
+      <div class="kunde">${esc(a.kunde?.name || 'Kunde offen')}
+        ${a.fahrzeug?.kennzeichen ? ' · <span class="kennz">'+esc(a.fahrzeug.kennzeichen)+'</span>' : ''}</div>
+      ${a.anliegen ? `<div class="anliegen">${esc(a.anliegen)}</div>` : ''}
+      <div class="fuss"><span>${[a.termin ? 'An '+datum(a.termin)+(a.uhrAnnahme?' '+a.uhrAnnahme:'') : '',
+        a.fertig ? 'Fertig '+datum(a.fertig)+(a.uhrFertig?' '+a.uhrFertig:'') : ''
+        ].filter(Boolean).join(' · ') || 'angelegt '+datum(a.angelegt)}</span>
+        <span class="summe">${eur(s.brutto)}</span></div>
+    </button>`;
+  }).join('');
+  el.querySelectorAll('.karte').forEach(k => k.onclick = ()=> editor(k.dataset.id));
+}
+function render(){ renderLeiste(); renderListe(); }
+
+/* ---------- Editor ---------- */
+function leerAuftrag(){
+  return {
+    id: 'a'+Date.now()+Math.random().toString(36).slice(2,6),
+    nummer: neueNummer(), status:'angenommen',
+    angelegt: new Date().toISOString().slice(0,10),
+    termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{},
+    kunde:{name:'',telefon:'',email:''},
+    fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
+    anliegen:'', notiz:'',
+    arbeit:[{bez:'',std:'',satz:daten.settings.stundensatz}],
+    teile:[]
+  };
+}
+let entwurf = null;
+
+function posZeile(art, p, i){
+  const istArbeit = art === 'arbeit';
+  return `<div class="pos" data-art="${art}" data-i="${i}">
+    <input class="feld" data-f="bez" placeholder="${istArbeit?'Arbeitsschritt':'Teil / Material'}" value="${esc(p.bez)}">
+    <input class="feld" data-f="${istArbeit?'std':'menge'}" type="number" step="${istArbeit?'0.25':'1'}" inputmode="decimal" placeholder="${istArbeit?'Std':'Anz'}" value="${esc(istArbeit?p.std:p.menge)}">
+    <input class="feld" data-f="${istArbeit?'satz':'preis'}" type="number" step="0.01" inputmode="decimal" placeholder="€" value="${esc(istArbeit?p.satz:p.preis)}">
+    <button class="weg" data-weg="${art}:${i}" title="Position entfernen" aria-label="Position entfernen">✕</button>
+  </div>`;
+}
+
+function editor(id){
+  aktuelleId = id;
+  entwurf = id ? JSON.parse(JSON.stringify(daten.auftraege.find(a=>a.id===id))) : leerAuftrag();
+  entwurf.arbeit = entwurf.arbeit || []; entwurf.teile = entwurf.teile || [];
+  document.getElementById('blattTitel').textContent = (id?'Auftrag ':'Neuer Auftrag ') + entwurf.nummer;
+  zeichneEditor();
+  document.getElementById('huelle').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function schliessen(){
+  document.getElementById('huelle').hidden = true;
+  document.body.style.overflow = '';
+  entwurf = null; aktuelleId = null;
+}
+
+function zeichneEditor(){
+  const a = entwurf, s = summen(a);
+  document.getElementById('blattInhalt').innerHTML = `
+  <div class="zeile">
+    <div><label for="fStatus">Status</label>
+      <select class="feld" id="fStatus">${STATUS.map(x=>`<option value="${x.id}" ${a.status===x.id?'selected':''}>${x.label}</option>`).join('')}</select></div>
+  </div>
+
+  <fieldset><legend>Termine</legend>
+    <div class="zeile">
+      <div><label for="fTermin">Annahme</label>
+        <input class="feld" id="fTermin" type="date" value="${esc(a.termin)}"></div>
+      <div><label for="fUhrAnnahme">Uhrzeit</label>
+        <input class="feld" id="fUhrAnnahme" type="time" value="${esc(a.uhrAnnahme||'')}"></div>
+    </div>
+    <div class="zeile">
+      <div><label for="fFertig">Vereinbarte Fertigstellung</label>
+        <input class="feld" id="fFertig" type="date" value="${esc(a.fertig||'')}"></div>
+      <div><label for="fUhrFertig">Uhrzeit</label>
+        <input class="feld" id="fUhrFertig" type="time" value="${esc(a.uhrFertig||'')}"></div>
+    </div>
+    <p class="notiz">${kal.an
+      ? 'Beide Termine gehen in den Google Kalender: Erinnerung am Vortag um 14:00 Uhr und, sofern eine Uhrzeit gesetzt ist, zusätzlich eine Stunde vorher. Datum leeren entfernt den Eintrag.'
+      : '<b>Kalender nicht aktiv.</b> Termine werden nur hier gespeichert. Einschalten unter Einstellungen → Google Kalender.'}</p>
+  </fieldset>
+
+  <fieldset><legend>Kunde</legend>
+    <label for="kName">Name</label><input class="feld" id="kName" value="${esc(a.kunde.name)}">
+    <div class="zeile">
+      <div><label for="kTel">Telefon</label><input class="feld" id="kTel" type="tel" value="${esc(a.kunde.telefon)}"></div>
+      <div><label for="kMail">E-Mail</label><input class="feld" id="kMail" type="email" value="${esc(a.kunde.email)}"></div>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>Fahrzeug</legend>
+    <div class="zeile">
+      <div><label for="fMarke">Marke</label><input class="feld" id="fMarke" value="${esc(a.fahrzeug.marke)}"></div>
+      <div><label for="fModell">Modell / Typ</label><input class="feld" id="fModell" value="${esc(a.fahrzeug.modell)}"></div>
+    </div>
+    <div class="zeile">
+      <div><label for="fKennz">Kennzeichen</label><input class="feld" id="fKennz" value="${esc(a.fahrzeug.kennzeichen)}"></div>
+      <div><label for="fKm">km-Stand</label><input class="feld" id="fKm" type="number" inputmode="numeric" value="${esc(a.fahrzeug.km)}"></div>
+    </div>
+    <label for="fFin">FIN</label><input class="feld" id="fFin" value="${esc(a.fahrzeug.fin)}">
+  </fieldset>
+
+  <fieldset><legend>Auftrag</legend>
+    <label for="fAnliegen">Kundenangabe / Auftragsumfang</label>
+    <textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
+    <label for="fNotiz">Interne Notiz (Befund, Teilebestellung, Rückruf)</label>
+    <textarea class="feld" id="fNotiz">${esc(a.notiz)}</textarea>
+  </fieldset>
+
+  <fieldset><legend>Arbeitszeit</legend>
+    <div class="pos-kopf"><span>Arbeitsschritt</span><span>Std</span><span>€/Std</span><span></span></div>
+    <div id="listeArbeit">${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}</div>
+    <button class="plus" data-plus="arbeit">+ Arbeitsposition</button>
+  </fieldset>
+
+  <fieldset><legend>Teile & Material</legend>
+    <div class="pos-kopf"><span>Bezeichnung</span><span>Anzahl</span><span>Einzel €</span><span></span></div>
+    <div id="listeTeile">${a.teile.map((p,i)=>posZeile('teile',p,i)).join('')}</div>
+    <button class="plus" data-plus="teile">+ Teileposition</button>
+  </fieldset>
+
+  <div class="summen">
+    <div><span>Arbeitszeit</span><span>${eur(s.arbeit)}</span></div>
+    <div><span>Teile & Material</span><span>${eur(s.teile)}</span></div>
+    <div><span>Netto</span><span>${eur(s.netto)}</span></div>
+    ${s.satz ? `<div><span>zzgl. ${s.satz} % USt</span><span>${eur(s.steuer)}</span></div>`
+             : `<div><span>ohne USt-Ausweis (§ 19 UStG)</span><span>–</span></div>`}
+    <div class="brutto"><span>Gesamt</span><span>${eur(s.brutto)}</span></div>
+  </div>
+
+  <div class="aktionen">
+    <button class="k2 k2-haupt" id="btnSpeichern">Auftrag speichern</button>
+    <button class="k2" id="btnDrucken">Auftragszettel drucken</button>
+    ${aktuelleId ? '<button class="k2 k2-loeschen" id="btnLoeschen">Löschen</button>' : ''}
+  </div>`;
+
+  const inh = document.getElementById('blattInhalt');
+  inh.querySelectorAll('[data-plus]').forEach(b => b.onclick = ()=>{
+    uebernehmen();
+    if(b.dataset.plus === 'arbeit') entwurf.arbeit.push({bez:'',std:'',satz:daten.settings.stundensatz});
+    else entwurf.teile.push({bez:'',menge:1,preis:''});
+    zeichneEditor();
+  });
+  inh.querySelectorAll('[data-weg]').forEach(b => b.onclick = ()=>{
+    uebernehmen();
+    const [art,i] = b.dataset.weg.split(':');
+    entwurf[art].splice(parseInt(i,10),1);
+    zeichneEditor();
+  });
+  inh.querySelectorAll('.pos .feld').forEach(f => f.onchange = ()=>{ uebernehmen(); zeichneEditor(); });
+  [['fTermin','fUhrAnnahme'],['fFertig','fUhrFertig']].forEach(([dId,uId])=>{
+    const d = document.getElementById(dId), u = document.getElementById(uId);
+    if(!d || !u) return;
+    const pruefen = ()=>{ if(!d.value) u.value = ''; u.disabled = !d.value; };
+    d.onchange = pruefen; pruefen();
+  });
+  document.getElementById('btnSpeichern').onclick = speichernAuftrag;
+  document.getElementById('btnDrucken').onclick = ()=>{ uebernehmen(); drucken(entwurf); };
+  const del = document.getElementById('btnLoeschen');
+  if(del) del.onclick = async ()=>{
+    const imKalender = entwurf.kalender && Object.keys(entwurf.kalender).length;
+    const frage = 'Auftrag ' + entwurf.nummer + ' endgültig löschen?'
+      + (imKalender && !kal.an ? '\n\nAchtung: Für diesen Auftrag bestehen Kalendereinträge. Ohne verbundenen Kalender bleiben sie stehen.' : '')
+      + (imKalender && kal.an ? '\n\nDie zugehörigen Kalendereinträge werden mitgelöscht.' : '');
+    if(confirm(frage)){
+      const weg = daten.auftraege.find(x=>x.id===aktuelleId);
+      const nr = entwurf.nummer;
+      daten.auftraege = daten.auftraege.filter(x=>x.id!==aktuelleId);
+      speichern(true); schliessen(); render();
+      if(kal.an){
+        try{
+          const b = await kalenderEntfernen(weg);
+          if(b.offen) melden('Auftrag ' + nr + ' gelöscht, aber ' + b.offen + ' Kalendereintrag/-einträge blieben stehen.', true);
+          else melden('Auftrag ' + nr + ' gelöscht' + (b.geloescht ? ' samt ' + b.geloescht + (b.geloescht>1?' Kalendereinträgen':' Kalendereintrag') : ''));
+        }catch(e){ melden('Auftrag gelöscht, Kalender nicht erreicht.', true); }
+      }else melden('Auftrag gelöscht');
+    }
+  };
+}
+
+function uebernehmen(){
+  const v = id => (document.getElementById(id)||{}).value || '';
+  entwurf.status = v('fStatus') || entwurf.status;
+  entwurf.termin = v('fTermin');
+  entwurf.uhrAnnahme = entwurf.termin ? v('fUhrAnnahme') : '';
+  entwurf.fertig = v('fFertig');
+  entwurf.uhrFertig = entwurf.fertig ? v('fUhrFertig') : '';
+  entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
+  entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(), fin:v('fFin').toUpperCase(), km:v('fKm')};
+  entwurf.anliegen = v('fAnliegen');
+  entwurf.notiz = v('fNotiz');
+  document.querySelectorAll('#blattInhalt .pos').forEach(p=>{
+    const art = p.dataset.art, i = parseInt(p.dataset.i,10);
+    p.querySelectorAll('.feld').forEach(f => { entwurf[art][i][f.dataset.f] = f.value; });
+  });
+}
+
+async function speichernAuftrag(){
+  uebernehmen();
+  entwurf.arbeit = entwurf.arbeit.filter(p => p.bez || z(p.std));
+  entwurf.teile  = entwurf.teile.filter(p => p.bez || z(p.preis));
+  if(!entwurf.kunde.name && !entwurf.fahrzeug.kennzeichen && !entwurf.anliegen){
+    melden('Mindestens Kunde, Kennzeichen oder Auftragsumfang ausfüllen.', true); return;
+  }
+  const i = daten.auftraege.findIndex(a=>a.id===entwurf.id);
+  if(i >= 0) daten.auftraege[i] = entwurf; else daten.auftraege.unshift(entwurf);
+  const a = entwurf;
+  speichern();
+  schliessen(); render();
+  const hatTermin = !!(a.termin || a.fertig);
+  const hatEintraege = !!(a.kalender && Object.keys(a.kalender).length);
+  if(!kal.an){
+    if(hatTermin || hatEintraege) melden('Gespeichert. Kalender ist nicht eingeschaltet – Termine wurden nicht abgeglichen (Einstellungen → Google Kalender).', true);
+  }else if(!hatTermin && !hatEintraege){
+    melden('Gespeichert. Kein Datum eingetragen, daher kein Kalendereintrag.');
+  }else{
+    try{
+      const b = await kalenderAbgleich(a);
+      speichern(true);
+      const teile = [];
+      if(b.neu) teile.push(b.neu + ' neu');
+      if(b.geaendert) teile.push(b.geaendert + ' aktualisiert');
+      if(b.geloescht) teile.push(b.geloescht + ' gelöscht');
+      melden(teile.length ? 'Gespeichert – Kalender: ' + teile.join(', ')
+                          : 'Gespeichert, aber der Kalender wurde nicht angefasst – bitte Einstellungen → Kalender prüfen.', !teile.length);
+    }catch(e){ melden(e.message, true); }
+  }
+}
+
+/* ---------- Einstellungen ---------- */
+function einstellungen(){
+  aktuelleId = null;
+  document.getElementById('blattTitel').textContent = 'Einstellungen';
+  const s = daten.settings;
+  document.getElementById('blattInhalt').innerHTML = `
+  <fieldset><legend>Kalkulation</legend>
+    <label for="sStd">Standard-Stundensatz (€)</label>
+    <input class="feld" id="sStd" type="number" step="0.5" value="${esc(s.stundensatz)}">
+    <label for="sKu">Umsatzsteuer</label>
+    <select class="feld" id="sKu">
+      <option value="1" ${s.kleinunternehmer?'selected':''}>Kleinunternehmer § 19 UStG – kein USt-Ausweis</option>
+      <option value="0" ${!s.kleinunternehmer?'selected':''}>Regelbesteuerung – USt ausweisen</option>
+    </select>
+    <label for="sSatz">USt-Satz (%)</label>
+    <input class="feld" id="sSatz" type="number" step="1" value="${esc(s.mwst)}">
+  </fieldset>
+  <fieldset><legend>Kopfzeile Auftragszettel</legend>
+    <label for="sBetrieb">Betrieb, Anschrift, Kontakt (mehrzeilig)</label>
+    <textarea class="feld" id="sBetrieb">${esc(s.betrieb)}</textarea>
+  </fieldset>
+  <fieldset><legend>Speicherdatei</legend>
+    <p class="notiz" id="speicherInfo"></p>
+    ${kannDatei ? `
+      <button class="k2" id="btnDateiWaehlen">Vorhandene Datei verwenden</button>
+      <button class="k2" id="btnDateiNeu">Neue Datei anlegen</button>
+      ${dateiGriff ? '<button class="k2 k2-loeschen" id="btnDateiTrennen">Verbindung lösen</button>' : ''}
+      <div style="margin-top:12px">
+        <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte)">
+          <input type="checkbox" id="sMerken" ${merken?'checked':''}> Diese Datei beim nächsten Start wieder verwenden
+        </label>
+      </div>`
+      : `<p class="notiz">Dieser Aufrufweg erlaubt kein Schreiben in eine feste Datei. Nutze Chrome oder Edge und rufe das Tool über seine Web-Adresse oder den mitgelieferten Starter auf – nicht per Doppelklick auf die Datei.</p>`}
+  </fieldset>
+  <fieldset><legend>Google Kalender</legend>
+    <p class="notiz">Programmstand: <code>${VERSION}</code></p>
+    <p class="notiz" id="kalInfo"></p>
+    <label for="kId">OAuth Client-ID</label>
+    <input class="feld" id="kId" placeholder="…apps.googleusercontent.com" value="${esc(kal.clientId)}">
+    <label for="kKonto">Google-Konto</label>
+    <input class="feld" id="kKonto" type="email" placeholder="wird beim Verbinden übernommen" value="${esc(kal.konto)}">
+    <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte);margin:2px 0 12px">
+      <input type="checkbox" id="kAn" ${kal.an?'checked':''}> Termine im Google Kalender führen
+    </label>
+    <button class="k2" id="btnKalVerbinden">Mit Google verbinden</button>
+    ${kalGueltig()?'<button class="k2" id="btnKalAbmelden">Abmelden</button>':''}
+    <button class="k2" id="btnKalTest">Kalender prüfen</button>
+    <pre id="kalTest" style="display:none;white-space:pre-wrap;font-family:var(--mono);font-size:12px;
+      background:#F4F7F9;border:1px solid var(--kante);border-radius:3px;padding:10px;margin-top:10px"></pre>
+    <p class="notiz" style="margin-top:10px">Dieselbe Client-ID wie in der Handy-App. Voraussetzung: In der
+      Google Cloud Console muss <code>${location.origin}</code> als autorisierte JavaScript-Quelle
+      eingetragen sein. Per Doppelklick auf die Datei geöffnet (<code>file://</code>) verweigert Google
+      die Anmeldung – dann das Tool über die Web-Adresse oder den Starter aufrufen.</p>
+  </fieldset>
+  <fieldset><legend>Sicherung & Export</legend>
+    <p class="notiz">Die CSV-Datei ist für Buchhaltung und Rechnungsstellung gedacht, die JSON-Datei als vollständige Sicherung.</p>
+    <button class="k2" id="btnJson">JSON-Sicherung laden</button>
+    <button class="k2" id="btnImportPlus">Aufträge hinzufügen</button>
+    <button class="k2" id="btnImport">Sicherung einlesen (ersetzt alles)</button>
+    <input type="file" id="datei" accept="application/json" hidden>
+  </fieldset>
+  <div class="aktionen"><button class="k2 k2-haupt" id="btnSetSpeichern">Einstellungen speichern</button></div>`;
+
+  document.getElementById('btnSetSpeichern').onclick = ()=>{
+    kal.clientId = document.getElementById('kId').value.trim();
+    kal.konto = document.getElementById('kKonto').value.trim();
+    kal.an = document.getElementById('kAn').checked;
+    kalSichern();
+    daten.settings = {
+      stundensatz: z(document.getElementById('sStd').value),
+      kleinunternehmer: document.getElementById('sKu').value === '1',
+      mwst: z(document.getElementById('sSatz').value),
+      betrieb: document.getElementById('sBetrieb').value
+    };
+    speichern(); schliessen(); render();
+  };
+  document.getElementById('speicherInfo').textContent = dateiGriff
+    ? 'Jede Änderung wird sofort in ' + dateiGriff.name + ' geschrieben. Liegt die Datei im Google-Drive-Ordner, synchronisiert Drive sie von selbst.'
+    : (hatClaudeSpeicher
+        ? 'Zurzeit wird im Claude-Konto gespeichert. Lege eine Speicherdatei fest, damit die Aufträge in Deinem Google-Drive-Ordner landen.'
+        : 'Zurzeit wird nur im Browser dieses Rechners gespeichert. Lege eine Speicherdatei fest, damit die Aufträge in Deinem Google-Drive-Ordner landen.');
+  const bw = document.getElementById('btnDateiWaehlen');
+  if(bw) bw.onclick = async ()=>{ await speicherdateiWaehlen(); einstellungen(); };
+  const bn = document.getElementById('btnDateiNeu');
+  if(bn) bn.onclick = async ()=>{ await neueSpeicherdatei(); einstellungen(); };
+  const bt = document.getElementById('btnDateiTrennen');
+  if(bt) bt.onclick = async ()=>{ await verbindungLoesen(); einstellungen(); };
+  const bm = document.getElementById('sMerken');
+  if(bm) bm.onchange = async ()=>{
+    merken = bm.checked;
+    lsSet('werkstatt-merken', merken ? '1' : '0');
+    if(merken && dateiGriff) await griffSchreiben(dateiGriff); else if(!merken) await griffLoeschen();
+  };
+  document.getElementById('kalInfo').textContent = kalGueltig()
+    ? 'Verbunden' + (kal.konto ? ' als ' + kal.konto : '') + ', gültig bis '
+      + new Date(kalBis).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) + ' Uhr.'
+    : 'Nicht verbunden. Ohne Verbindung werden Termine nur hier gespeichert, nicht im Kalender eingetragen.';
+  document.getElementById('kAn').onchange = e =>{ kal.an = e.target.checked; kalSichern(); };
+  document.getElementById('btnKalVerbinden').onclick = async ()=>{
+    kal.clientId = document.getElementById('kId').value.trim();
+    kal.konto = document.getElementById('kKonto').value.trim();
+    kal.an = document.getElementById('kAn').checked;
+    kalSichern(); kalAbmelden();
+    try{
+      await kalAnmelden(true);
+      if(!kal.konto){
+        try{
+          const r = await kalApi('https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1');
+          const j = await r.json();
+          if(j.summary && j.summary.includes('@')){ kal.konto = j.summary; kalSichern(); }
+        }catch(e){}
+      }
+      melden('Kalender verbunden'); einstellungen();
+    }catch(e){ melden(e.message, true); }
+  };
+  document.getElementById('btnKalTest').onclick = async ()=>{
+    kal.clientId = document.getElementById('kId').value.trim();
+    kal.konto = document.getElementById('kKonto').value.trim();
+    kal.an = document.getElementById('kAn').checked;
+    kalSichern();
+    const feld = document.getElementById('kalTest');
+    feld.style.display = 'block'; feld.textContent = 'Prüfung läuft …';
+    await kalenderPruefen(z => { feld.textContent = z.join('\n'); });
+  };
+  const kab = document.getElementById('btnKalAbmelden');
+  if(kab) kab.onclick = ()=>{ kalAbmelden(); melden('Vom Kalender abgemeldet'); einstellungen(); };
+  document.getElementById('btnJson').onclick = exportJson;
+  document.getElementById('btnImport').onclick = ()=>{ importModus = 'ersetzen'; document.getElementById('datei').click(); };
+  document.getElementById('btnImportPlus').onclick = ()=>{ importModus = 'hinzu'; document.getElementById('datei').click(); };
+  document.getElementById('datei').onchange = e =>{
+    const f = e.target.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = ()=>{
+      try{
+        const g = JSON.parse(r.result);
+        if(!Array.isArray(g.auftraege)) throw new Error('Format');
+        if(importModus === 'hinzu'){
+          const vorhanden = new Set(daten.auftraege.map(a=>a.nummer));
+          let anzahl = 0;
+          g.auftraege.forEach(a=>{
+            a.id = 'i' + Date.now() + Math.random().toString(36).slice(2,6);
+            if(!a.nummer || vorhanden.has(a.nummer)) a.nummer = neueNummer();
+            vorhanden.add(a.nummer);
+            daten.auftraege.unshift(a); anzahl++;
+          });
+          speichern(true); schliessen(); render();
+          melden(anzahl + ' Aufträge hinzugefügt');
+        }else{
+          if(daten.auftraege.length && !confirm('Alle vorhandenen Aufträge und Einstellungen ersetzen?')) return;
+          uebernehmeDaten(g);
+          speichern(true); schliessen(); render();
+          melden('Sicherung eingelesen');
+        }
+      }catch(err){ melden('Datei nicht lesbar – erwartet wird eine JSON-Datei im Format dieses Tools.', true); }
+      e.target.value = '';
+    };
+    r.readAsText(f);
+  };
+  document.getElementById('huelle').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+/* ---------- Export ---------- */
+function download(name, inhalt, typ){
+  const b = new Blob([inhalt], {type:typ});
+  const u = URL.createObjectURL(b);
+  const a = document.createElement('a');
+  a.href = u; a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(u), 3000);
+}
+function exportJson(){
+  download('werkstattauftraege-'+new Date().toISOString().slice(0,10)+'.json',
+    JSON.stringify(daten,null,2), 'application/json');
+  melden('Sicherung geladen');
+}
+function exportCsv(){
+  const k = ['Auftragsnummer','Angelegt','Annahme','Uhrzeit Annahme','Fertigstellung','Uhrzeit Fertigstellung','Status','Kunde','Telefon','E-Mail','Marke','Modell','Kennzeichen','FIN','km','Auftragsumfang','Arbeitszeit netto','Teile netto','Netto','USt','Gesamt'];
+  const q = v => '"' + String(v==null?'':v).replace(/"/g,'""').replace(/\r?\n/g,' ') + '"';
+  const num = n => n.toFixed(2).replace('.',',');
+  const zeilen = daten.auftraege.map(a=>{
+    const s = summen(a);
+    return [a.nummer,a.angelegt,a.termin,a.uhrAnnahme||'',a.fertig||'',a.uhrFertig||'',statusLabel(a.status),a.kunde?.name,a.kunde?.telefon,a.kunde?.email,
+      a.fahrzeug?.marke,a.fahrzeug?.modell,a.fahrzeug?.kennzeichen,a.fahrzeug?.fin,a.fahrzeug?.km,a.anliegen,
+      num(s.arbeit),num(s.teile),num(s.netto),num(s.steuer),num(s.brutto)].map(q).join(';');
+  });
+  download('werkstattauftraege-'+new Date().toISOString().slice(0,10)+'.csv',
+    '\ufeff' + [k.map(q).join(';')].concat(zeilen).join('\r\n'), 'text/csv;charset=utf-8');
+  melden('CSV geladen');
+}
+
+/* ---------- Auftragszettel drucken ---------- */
+function drucken(a){
+  const s = summen(a);
+  const pos = (t, rows) => rows.length ? `<h3>${t}</h3><table><tr><th>Position</th><th class="r">Menge</th><th class="r">Einzel</th><th class="r">Summe</th></tr>${rows.join('')}</table>` : '';
+  const arbeit = (a.arbeit||[]).filter(p=>p.bez||z(p.std)).map(p=>
+    `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.std).toLocaleString('de-DE')} Std</td><td class="r">${eur(z(p.satz))}</td><td class="r">${eur(z(p.std)*z(p.satz))}</td></tr>`);
+  const teile = (a.teile||[]).filter(p=>p.bez||z(p.preis)).map(p=>
+    `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.menge).toLocaleString('de-DE')}</td><td class="r">${eur(z(p.preis))}</td><td class="r">${eur(z(p.menge)*z(p.preis))}</td></tr>`);
+  document.getElementById('druck').innerHTML = `
+    ${daten.settings.betrieb ? `<div style="white-space:pre-line;margin-bottom:10px">${esc(daten.settings.betrieb)}</div>` : ''}
+    <h2>Werkstattauftrag ${esc(a.nummer)}</h2>
+    <div class="kasten">
+      <strong>${esc(a.kunde?.name||'')}</strong><br>
+      ${esc(a.kunde?.telefon||'')} ${a.kunde?.email?' · '+esc(a.kunde.email):''}<br><br>
+      Fahrzeug: ${esc([a.fahrzeug?.marke,a.fahrzeug?.modell].filter(Boolean).join(' '))}
+      · Kennzeichen: ${esc(a.fahrzeug?.kennzeichen||'–')}
+      · km: ${esc(a.fahrzeug?.km||'–')}<br>
+      FIN: ${esc(a.fahrzeug?.fin||'–')}<br>
+      Angelegt: ${datum(a.angelegt)} · Status: ${statusLabel(a.status)}<br>
+      Annahme: ${datum(a.termin)}${a.uhrAnnahme?', '+a.uhrAnnahme+' Uhr':''}
+      · Vereinbarte Fertigstellung: ${datum(a.fertig)}${a.uhrFertig?', '+a.uhrFertig+' Uhr':''}
+    </div>
+    <div class="kasten"><strong>Auftragsumfang</strong><br>${esc(a.anliegen||'–').replace(/\n/g,'<br>')}</div>
+    ${pos('Arbeitszeit', arbeit)}
+    ${pos('Teile & Material', teile)}
+    <table style="margin-top:10px">
+      <tr><td>Netto</td><td class="r">${eur(s.netto)}</td></tr>
+      ${s.satz ? `<tr><td>zzgl. ${s.satz} % USt</td><td class="r">${eur(s.steuer)}</td></tr>`
+               : `<tr><td colspan="2">Kein Ausweis der Umsatzsteuer gemäß § 19 UStG.</td></tr>`}
+      <tr><td><strong>Gesamt</strong></td><td class="r"><strong>${eur(s.brutto)}</strong></td></tr>
+    </table>
+    <p style="margin-top:26px">Unterschrift Kunde: ______________________________</p>`;
+  window.print();
+}
+
+/* ---------- Start ---------- */
+document.getElementById('btnNeu').onclick = ()=> editor(null);
+document.getElementById('btnSchliessen').onclick = schliessen;
+document.getElementById('btnEinstellungen').onclick = einstellungen;
+document.getElementById('btnExport').onclick = ()=>{
+  if(!daten.auftraege.length){ melden('Noch keine Aufträge zum Exportieren.', true); return; }
+  exportCsv();
+};
+document.getElementById('btnSpeicherort').onclick = einstellungen;
+(function(){
+  const h = document.getElementById('huelle');
+  let startAufHintergrund = false;
+  h.addEventListener('mousedown', e => { startAufHintergrund = (e.target === h); });
+  h.addEventListener('click', e => {
+    if(startAufHintergrund && e.target === h) schliessen();
+    startAufHintergrund = false;
+  });
+})();
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !document.getElementById('huelle').hidden) schliessen(); });
+
+setInterval(()=>{
+  if(document.hidden || !kal.an || !kal.clientId || !gisBereit()) return;
+  if(kalBis && Date.now() > kalBis - 10*60*1000) kalAnmelden(false).catch(()=>{});
+}, 4*60*1000);
+
+(async ()=>{ kalLaden(); kalTokenAusSpeicher(); await laden(); render(); speicherStand(); })();
+</script>
+</body>
+</html>
