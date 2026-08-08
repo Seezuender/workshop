@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 27';
+const VERSION = '2026-08-08 / 28';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1969,7 +1969,9 @@ function drucken(a){
   const teile = (a.teile||[]).filter(p=>p.bez||z(p.preis)).map(p=>
     `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.menge).toLocaleString('de-DE')}</td><td class="r">${eur(z(p.preis))}</td><td class="r">${eur(z(p.menge)*z(p.preis))}</td></tr>`);
   // Betriebsangaben: erste Zeile ist der Name, der Rest die Anschrift
-  const betriebZeilen = String(daten.settings.betrieb||'').split('\n').map(z=>z.trim()).filter(Boolean);
+  // Fehlt der Eintrag in der Auftragsdatei, greift die eingebaute Vorgabe
+  const betriebRoh = (daten.settings.betrieb && daten.settings.betrieb.trim()) ? daten.settings.betrieb : VORGABE.betrieb;
+  const betriebZeilen = String(betriebRoh||'').split('\n').map(z=>z.trim()).filter(Boolean);
   const betriebName = betriebZeilen[0] || '';
   const betriebRest = betriebZeilen.slice(1);
 
