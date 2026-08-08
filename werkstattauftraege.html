@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 26';
+const VERSION = '2026-08-08 / 27';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -585,7 +585,7 @@ function summen(a){
   const arbeit = (a.arbeit||[]).reduce((s,p)=> s + z(p.std)*z(p.satz), 0);
   const teile  = (a.teile||[]).reduce((s,p)=> s + z(p.menge)*z(p.preis), 0);
   const netto  = arbeit + teile;
-  const satz   = daten.settings.kleinunternehmer ? 0 : z(daten.settings.mwst);
+  const satz   = daten.settings.kleinunternehmer ? 0 : (daten.settings.mwst === undefined || daten.settings.mwst === '' ? 19 : z(daten.settings.mwst));
   const steuer = netto * satz/100;
   return {arbeit, teile, netto, steuer, brutto: netto + steuer, satz};
 }
@@ -1968,12 +1968,33 @@ function drucken(a){
     `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.std).toLocaleString('de-DE')} Std</td><td class="r">${eur(z(p.satz))}</td><td class="r">${eur(z(p.std)*z(p.satz))}</td></tr>`);
   const teile = (a.teile||[]).filter(p=>p.bez||z(p.preis)).map(p=>
     `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.menge).toLocaleString('de-DE')}</td><td class="r">${eur(z(p.preis))}</td><td class="r">${eur(z(p.menge)*z(p.preis))}</td></tr>`);
+  // Betriebsangaben: erste Zeile ist der Name, der Rest die Anschrift
+  const betriebZeilen = String(daten.settings.betrieb||'').split('\n').map(z=>z.trim()).filter(Boolean);
+  const betriebName = betriebZeilen[0] || '';
+  const betriebRest = betriebZeilen.slice(1);
+
+  // Kundenanschrift vollständig
+  const k = a.kunde || {};
+  const kundeZeilen = [
+    kundeName(k),
+    k.strasse || '',
+    [k.plz, k.ort].filter(Boolean).join(' ')
+  ].filter(Boolean);
+  const kontaktZeile = [k.telefon, k.email].filter(Boolean).join(' · ');
+
   document.getElementById('druck').innerHTML = `
-    ${daten.settings.betrieb ? `<div style="white-space:pre-line;margin-bottom:10px">${esc(daten.settings.betrieb)}</div>` : ''}
+    ${betriebName ? `<div style="border-bottom:2px solid #222;padding-bottom:8px;margin-bottom:14px">
+        <div style="font-size:17pt;font-weight:700;letter-spacing:.04em">${esc(betriebName)}</div>
+        ${betriebRest.length ? `<div style="font-size:9.5pt;margin-top:3px">${betriebRest.map(esc).join(' · ')}</div>` : ''}
+      </div>` : ''}
     <h2>Werkstattauftrag ${esc(a.nummer)}</h2>
     <div class="kasten">
-      <strong>${esc(a.kunde?.name||'')}</strong><br>
-      ${esc(a.kunde?.telefon||'')} ${a.kunde?.email?' · '+esc(a.kunde.email):''}<br><br>
+      <strong>Kunde</strong><br>
+      ${kundeZeilen.length ? kundeZeilen.map((z,i)=> i===0 ? '<strong>'+esc(z)+'</strong>' : esc(z)).join('<br>') : '–'}
+      ${kontaktZeile ? '<br>'+esc(kontaktZeile) : ''}
+    </div>
+    <div class="kasten">
+      <strong>Fahrzeug und Auftrag</strong><br>
       Fahrzeug: ${esc([a.fahrzeug?.marke,a.fahrzeug?.modell].filter(Boolean).join(' '))}
       · Kennzeichen: ${esc(a.fahrzeug?.kennzeichen||'–')}
       · km: ${esc(a.fahrzeug?.km||'–')}<br>

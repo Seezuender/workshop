@@ -233,7 +233,7 @@ function summen(a){
   const arbeit = (a.arbeit||[]).reduce((s,p)=>s+z(p.std)*z(p.satz),0);
   const teile  = (a.teile||[]).reduce((s,p)=>s+z(p.menge)*z(p.preis),0);
   const netto = arbeit+teile;
-  const satz = daten.settings.kleinunternehmer ? 0 : z(daten.settings.mwst);
+  const satz = daten.settings.kleinunternehmer ? 0 : (daten.settings.mwst === undefined || daten.settings.mwst === '' ? 19 : z(daten.settings.mwst));
   const steuer = netto*satz/100;
   return {arbeit,teile,netto,steuer,brutto:netto+steuer,satz};
 }
@@ -991,7 +991,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-08 / 22';
+const APPVERSION = '2026-08-08 / 23';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
