@@ -913,6 +913,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
+const APPVERSION = '2026-08-08 / 15';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
@@ -952,6 +953,7 @@ function setup(){
     <p class="notiz">${tokenGueltig()
       ? 'Angemeldet, gültig bis ' + new Date(tokenBis).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) + ' Uhr. Danach meldet sich die App im Hintergrund selbst neu an.'
       : 'Zurzeit nicht angemeldet.'}</p>
+    <p class="notiz">App-Fassung <b>${APPVERSION}</b></p>
     <button class="k2" id="btnNeuLaden">Vom Drive neu laden</button>
     <button class="k2" id="btnAbmelden" style="margin-top:8px">Abmelden</button>
   </fieldset>
