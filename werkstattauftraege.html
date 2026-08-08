@@ -185,6 +185,20 @@
   .bildvoll button{position:absolute;top:16px;right:20px;background:rgba(255,255,255,.15);color:#fff;
                    border:1px solid rgba(255,255,255,.4);border-radius:var(--radius);padding:8px 14px}
 
+
+  .scheinbox{position:fixed;inset:0;z-index:75;background:rgba(10,13,16,.6);display:flex;
+             align-items:center;justify-content:center;padding:14px}
+  .scheinbox[hidden]{display:none}
+  .scheinblatt{background:var(--blech);border-radius:var(--radius);max-width:520px;width:100%;
+               max-height:92vh;overflow-y:auto;padding:16px;border:1px solid var(--kante)}
+  .scheinblatt h3{font-family:var(--display);letter-spacing:.1em;text-transform:uppercase;
+                  font-size:14px;margin:0 0 4px}
+  .scheinzeile{display:flex;gap:9px;align-items:center;margin-bottom:8px}
+  .scheinzeile input[type=text]{flex:1;padding:8px 10px;border:1px solid var(--kante);
+                                border-radius:var(--radius);background:#FBFCFD}
+  .scheinzeile .bez{width:104px;font-size:12px;color:var(--stahl);flex:none}
+  .fortschritt{height:6px;background:#E3E9ED;border-radius:3px;overflow:hidden;margin:10px 0}
+  .fortschritt div{height:100%;background:var(--oel);width:0%}
   .leer{
     max-width:520px;margin:60px auto;text-align:center;color:var(--stahl);padding:0 20px;
   }
@@ -324,13 +338,14 @@
 </div>
 
 <div class="bildvoll" id="bildvoll" hidden><img id="bildvollImg" alt="Auftragsbild"><button id="bildvollZu">Schließen</button></div>
+<div class="scheinbox" id="scheinbox" hidden><div class="scheinblatt" id="scheinblatt"></div></div>
 <div id="druck"></div>
 <div class="status-meldung" id="meldung" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 16';
+const VERSION = '2026-08-08 / 17';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -748,6 +763,140 @@ async function kalenderPruefen(ausgabe){
   }catch(e){ sagen(false, 'Unerwartet: ' + e.message); }
 }
 
+
+/* ---------- Fahrzeugschein auslesen (Texterkennung im Browser) ---------- */
+const SCHEINFELDER = [
+  {id:'kennzeichen', bez:'Kennzeichen'},
+  {id:'fin',         bez:'FIN'},
+  {id:'marke',       bez:'Marke'},
+  {id:'modell',      bez:'Modell'},
+  {id:'kunde',       bez:'Halter'},
+  {id:'erstzul',     bez:'Erstzulassung'}
+];
+
+function tesseractLaden(){
+  if(window.Tesseract) return Promise.resolve();
+  return new Promise((ok,fehl)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = ok;
+    s.onerror = ()=> fehl(new Error('Texterkennung konnte nicht geladen werden – Internetverbindung nötig'));
+    document.head.appendChild(s);
+  });
+}
+
+function scheinAuswerten(roh){
+  const text = String(roh||'').replace(/\u00a0/g,' ');
+  const zeilen = text.split('\n').map(z=>z.trim()).filter(Boolean);
+  const treffer = re => { const m = text.match(re); return m ? (m[1]||m[0]).trim() : ''; };
+
+  const nachCode = code => {
+    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '[\\s:.)-]*(.*)$');
+    for(let i=0;i<zeilen.length;i++){
+      const m = zeilen[i].match(muster);
+      if(m){
+        const rest = (m[1]||'').trim();
+        if(rest.length > 1) return rest;
+        for(let j=i+1;j<Math.min(i+3,zeilen.length);j++){
+          const n = zeilen[j].trim();
+          if(n.length > 1 && !/^[A-Z]\.?\d?(\.\d)?$/.test(n)) return n;
+        }
+      }
+    }
+    return '';
+  };
+  const saeubern = s => s.replace(/[|_]+/g,' ').replace(/\s{2,}/g,' ').trim();
+
+  let fin = treffer(/\b([A-HJ-NPR-Z0-9]{17})\b/);
+  if(!fin){
+    const e = nachCode('E').replace(/[^A-HJ-NPR-Z0-9]/gi,'').toUpperCase();
+    if(e.length === 17) fin = e;
+  }
+  let kennzeichen = treffer(/\b([A-ZÄÖÜ]{1,3})[\s\-–—·]{1,3}([A-ZÄÖÜ]{1,2})[\s\-–—]{0,2}(\d{1,4})\s?([EH])?\b/);
+  const km = text.match(/\b([A-ZÄÖÜ]{1,3})[\s\-–—·]{1,3}([A-ZÄÖÜ]{1,2})[\s\-–—]{0,2}(\d{1,4})\s?([EH])?\b/);
+  if(km) kennzeichen = km[1] + '-' + km[2] + ' ' + km[3] + (km[4] ? km[4] : '');
+
+  const halter = [nachCode('C.1.2'), nachCode('C.1.1')].map(saeubern).filter(Boolean).join(' ');
+
+  return {
+    kennzeichen: (kennzeichen||'').toUpperCase(),
+    fin: (fin||'').toUpperCase(),
+    marke: saeubern(nachCode('D.1')),
+    modell: saeubern(nachCode('D.3') || nachCode('D.2')),
+    kunde: halter,
+    erstzul: treffer(/\b(\d{2}[.\/]\d{2}[.\/]\d{4})\b/),
+    rohtext: text
+  };
+}
+
+function scheinFortschritt(text, anteil){
+  const b = document.getElementById('scheinblatt');
+  if(!b) return;
+  b.innerHTML = '<h3>Fahrzeugschein wird gelesen</h3>'
+    + '<p class="notiz">' + text + '</p>'
+    + '<div class="fortschritt"><div style="width:' + Math.round((anteil||0)*100) + '%"></div></div>'
+    + '<p class="notiz">Beim ersten Mal lädt die Spracherkennung für Deutsch herunter, das dauert einen Moment.</p>';
+  document.getElementById('scheinbox').hidden = false;
+}
+function scheinSchliessen(){ document.getElementById('scheinbox').hidden = true; }
+
+async function scheinLesen(datei){
+  try{
+    scheinFortschritt('Texterkennung wird geladen …', 0);
+    await tesseractLaden();
+    scheinFortschritt('Bild wird gelesen …', 0.05);
+    const erg = await Tesseract.recognize(datei, 'deu', {
+      logger: m => { if(m.status === 'recognizing text') scheinFortschritt('Bild wird gelesen …', m.progress); }
+    });
+    scheinPruefen(scheinAuswerten(erg.data && erg.data.text));
+  }catch(e){
+    scheinSchliessen();
+    melden(e.message || 'Texterkennung fehlgeschlagen', true);
+  }
+}
+
+function scheinPruefen(g){
+  const b = document.getElementById('scheinblatt');
+  const leer = SCHEINFELDER.every(f => !g[f.id]);
+  b.innerHTML = '<h3>Gefundene Angaben</h3>'
+    + '<p class="notiz">' + (leer
+        ? 'Es ließ sich nichts sicher erkennen. Bei Fotos hilft: gerade von oben, gutes Licht, nur den Schein im Bild.'
+        : 'Bitte prüfen und ändern – die Erkennung verwechselt gern 0/O und 1/I. Nur angehakte Felder werden übernommen.')
+      + '</p>'
+    + SCHEINFELDER.map(f =>
+        '<div class="scheinzeile">'
+        + '<input type="checkbox" data-an="' + f.id + '" ' + (g[f.id] ? 'checked' : '') + '>'
+        + '<span class="bez">' + f.bez + '</span>'
+        + '<input type="text" data-w="' + f.id + '" value="' + String(g[f.id]||'').replace(/"/g,'&quot;') + '">'
+        + '</div>').join('')
+    + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
+    + '<button class="k2 k2-haupt" id="scheinUeber">Übernehmen</button>'
+    + '<button class="k2" id="scheinAb">Abbrechen</button></div>';
+
+  document.getElementById('scheinAb').onclick = scheinSchliessen;
+  document.getElementById('scheinUeber').onclick = ()=>{
+    const wert = id => {
+      const an = b.querySelector('[data-an="' + id + '"]');
+      const w = b.querySelector('[data-w="' + id + '"]');
+      return (an && an.checked && w && w.value.trim()) ? w.value.trim() : '';
+    };
+    uebernehmen();
+    entwurf.fahrzeug = entwurf.fahrzeug || {};
+    entwurf.kunde = entwurf.kunde || {};
+    const kz = wert('kennzeichen'); if(kz) entwurf.fahrzeug.kennzeichen = kz.toUpperCase();
+    const fin = wert('fin');        if(fin) entwurf.fahrzeug.fin = fin.toUpperCase();
+    const ma = wert('marke');       if(ma) entwurf.fahrzeug.marke = ma;
+    const mo = wert('modell');      if(mo) entwurf.fahrzeug.modell = mo;
+    const ku = wert('kunde');       if(ku) entwurf.kunde.name = ku;
+    const ez = wert('erstzul');
+    if(ez && !(entwurf.notiz||'').includes(ez)) entwurf.notiz = ((entwurf.notiz||'') + '\nErstzulassung ' + ez).trim();
+    scheinSchliessen();
+    zeichneEditor();
+    melden('Angaben übernommen – bitte gegenprüfen');
+  };
+  document.getElementById('scheinbox').hidden = false;
+}
+
 /* ---------- Bilder im Bildordner ---------- */
 let bilderGriff = null;
 const bildCache = new Map();
@@ -1155,6 +1304,8 @@ function zeichneEditor(){
       <div><label for="fKm">km-Stand</label><input class="feld" id="fKm" type="number" inputmode="numeric" value="${esc(a.fahrzeug.km)}"></div>
     </div>
     <label for="fFin">FIN</label><input class="feld" id="fFin" value="${esc(a.fahrzeug.fin)}">
+    <input type="file" id="scheinWahl" accept="image/*" hidden>
+    <button class="plus" id="btnSchein">Fahrzeugschein auslesen</button>
   </fieldset>
 
   <fieldset><legend>Auftrag</legend>
@@ -1239,6 +1390,11 @@ function zeichneEditor(){
     }
     zeichneEditor();
     melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
+  };
+  document.getElementById('btnSchein').onclick = ()=> document.getElementById('scheinWahl').click();
+  document.getElementById('scheinWahl').onchange = e =>{
+    const d = e.target.files[0]; e.target.value = '';
+    if(d) scheinLesen(d);
   };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   document.getElementById('btnDrucken').onclick = ()=>{ uebernehmen(); drucken(entwurf); };
