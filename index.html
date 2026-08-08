@@ -792,7 +792,7 @@ function zeichne(){
       <input class="feld" id="fKm" type="number" inputmode="numeric" placeholder="km-Stand" value="${esc(a.fahrzeug.km||'')}">
     </div>
     <input class="feld" id="fFin" placeholder="FIN" value="${esc(a.fahrzeug.fin||'')}">
-    <button class="plus" id="btnSchein">Fahrzeugschein hochladen und auslesen</button>
+    <button class="plus" id="btnSchein">Fahrzeugschein auslesen</button>
   </fieldset>
   <fieldset><legend>Auftrag</legend>
     <label for="fAnliegen">Auftragsumfang</label><textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
@@ -934,7 +934,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-08 / 17';
+const APPVERSION = '2026-08-08 / 18';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;

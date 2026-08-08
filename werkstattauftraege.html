@@ -345,7 +345,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 21';
+const VERSION = '2026-08-08 / 22';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1331,7 +1331,7 @@ function zeichneEditor(){
       <div><label for="fKm">km-Stand</label><input class="feld" id="fKm" type="number" inputmode="numeric" value="${esc(a.fahrzeug.km)}"></div>
     </div>
     <label for="fFin">FIN</label><input class="feld" id="fFin" value="${esc(a.fahrzeug.fin)}">
-    <button class="plus" id="btnSchein">Fahrzeugschein hochladen und auslesen</button>
+    <button class="plus" id="btnSchein">Fahrzeugschein auslesen</button>
   </fieldset>
 
   <fieldset><legend>Auftrag</legend>
