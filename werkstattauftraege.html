@@ -171,6 +171,20 @@
                           width:26px;height:24px;line-height:1;color:var(--stahl);font-size:11px;padding:0}
   .spzeile .pfeile button:hover{border-color:var(--oel);color:var(--oel)}
 
+  .bilder{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+  .bildkachel{position:relative;width:104px;height:104px;border:1px solid var(--kante);border-radius:var(--radius);
+              overflow:hidden;background:#F1F4F6;display:flex;align-items:center;justify-content:center}
+  .bildkachel img{width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in}
+  .bildkachel .lade{font-size:10.5px;color:var(--stahl);text-align:center;padding:4px}
+  .bildkachel .weg{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
+                   border:0;background:rgba(18,23,28,.72);color:#fff;font-size:12px;line-height:1;padding:0}
+  .bildvoll{position:fixed;inset:0;z-index:70;background:rgba(10,13,16,.94);display:flex;
+            align-items:center;justify-content:center;padding:20px}
+  .bildvoll[hidden]{display:none}
+  .bildvoll img{max-width:100%;max-height:90vh;object-fit:contain}
+  .bildvoll button{position:absolute;top:16px;right:20px;background:rgba(255,255,255,.15);color:#fff;
+                   border:1px solid rgba(255,255,255,.4);border-radius:var(--radius);padding:8px 14px}
+
   .leer{
     max-width:520px;margin:60px auto;text-align:center;color:var(--stahl);padding:0 20px;
   }
@@ -309,13 +323,14 @@
   </div>
 </div>
 
+<div class="bildvoll" id="bildvoll" hidden><img id="bildvollImg" alt="Auftragsbild"><button id="bildvollZu">Schließen</button></div>
 <div id="druck"></div>
 <div class="status-meldung" id="meldung" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 13';
+const VERSION = '2026-08-08 / 16';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -325,14 +340,14 @@ const STATUS = [
 ];
 const statusLabel = id => (STATUS.find(s=>s.id===id)||STATUS[0]).label;
 
-let daten = {version:1, settings:{stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''}, auftraege:[]};
+let daten = {version:1, settings:{stundensatz:96, kleinunternehmer:false, mwst:19, betrieb:'UCL Motorrad\nBergheimer Straße 26\n88677 Markdorf'}, auftraege:[]};
 let filter = 'offen';
 let suchtext = '';
 let aktuelleId = null;
 let importModus = 'hinzu';
 
 /* ---------- Speicher: Datei > Claude > Browser ---------- */
-const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
+const VORGABE = {stundensatz:96, kleinunternehmer:false, mwst:19, betrieb:'UCL Motorrad\nBergheimer Straße 26\n88677 Markdorf'};
 const kannDatei = typeof window.showSaveFilePicker === 'function';
 const hatClaudeSpeicher = typeof window.storage !== 'undefined' && !!window.storage;
 let dateiGriff = null;
@@ -733,6 +748,74 @@ async function kalenderPruefen(ausgabe){
   }catch(e){ sagen(false, 'Unerwartet: ' + e.message); }
 }
 
+/* ---------- Bilder im Bildordner ---------- */
+let bilderGriff = null;
+const bildCache = new Map();
+
+async function bildGriffSchreiben(h){ try{ const db = await idb(); db.transaction('griffe','readwrite').objectStore('griffe').put(h,'bilder'); }catch(e){} }
+async function bildGriffLesen(){
+  try{
+    const db = await idb();
+    return await new Promise(ok=>{
+      const r = db.transaction('griffe').objectStore('griffe').get('bilder');
+      r.onsuccess = ()=> ok(r.result || null); r.onerror = ()=> ok(null);
+    });
+  }catch(e){ return null; }
+}
+async function bildOrdnerLaden(){
+  const h = await bildGriffLesen();
+  if(h && await h.queryPermission({mode:'readwrite'}) === 'granted') bilderGriff = h;
+  else if(h) bilderGriff = h;   // Griff da, Recht wird beim ersten Zugriff erfragt
+}
+async function bildOrdnerSichern(fragen){
+  if(!bilderGriff) return false;
+  if(await bilderGriff.queryPermission({mode:'readwrite'}) === 'granted') return true;
+  if(!fragen) return false;
+  return (await bilderGriff.requestPermission({mode:'readwrite'})) === 'granted';
+}
+async function bildOrdnerWaehlen(){
+  if(typeof window.showDirectoryPicker !== 'function'){
+    melden('Dieser Browser kann keinen Bildordner öffnen – Chrome oder Edge nutzen.', true); return false;
+  }
+  try{
+    bilderGriff = await window.showDirectoryPicker({id:'werkstattbilder', mode:'readwrite', startIn:'documents'});
+    await bildGriffSchreiben(bilderGriff);
+    melden('Bildordner gemerkt: ' + bilderGriff.name);
+    return true;
+  }catch(e){ if(e.name !== 'AbortError') melden('Ordner konnte nicht geöffnet werden.', true); return false; }
+}
+function bildName(nummer, datei){
+  const endung = (datei.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+  const stempel = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
+  return (nummer || 'Auftrag') + '_' + stempel + '_' + Math.random().toString(36).slice(2,5) + '.' + endung;
+}
+async function bildAblegen(datei, nummer){
+  if(!bilderGriff && !await bildOrdnerWaehlen()) throw new Error('Kein Bildordner gewählt');
+  if(!await bildOrdnerSichern(true)) throw new Error('Kein Schreibrecht für den Bildordner');
+  const name = bildName(nummer, datei);
+  const h = await bilderGriff.getFileHandle(name, {create:true});
+  const w = await h.createWritable();
+  await w.write(datei); await w.close();
+  return {name};
+}
+async function bildUrl(b){
+  if(bildCache.has(b.name)) return bildCache.get(b.name);
+  if(!bilderGriff) throw new Error('Bildordner nicht verbunden');
+  if(!await bildOrdnerSichern(false)) throw new Error('Zugriff auf den Bildordner bestätigen');
+  const h = await bilderGriff.getFileHandle(b.name);
+  const url = URL.createObjectURL(await h.getFile());
+  bildCache.set(b.name, url);
+  return url;
+}
+async function bildVerwerfen(b){
+  try{ if(bilderGriff && await bildOrdnerSichern(false)) await bilderGriff.removeEntry(b.name); }catch(e){}
+  bildCache.delete(b.name);
+}
+function bildAnzeigen(url){
+  document.getElementById('bildvollImg').src = url;
+  document.getElementById('bildvoll').hidden = false;
+}
+
 /* ---------- Ansichten ---------- */
 const SPALTEN = [
   {id:'nummer',      label:'Nr.',            art:'eng',  wert:a=>a.nummer||'',                       sort:a=>a.nummer||''},
@@ -754,6 +837,7 @@ const SPALTEN = [
   {id:'arbeit',      label:'Arbeit',         art:'zahl', wert:a=>eur(summen(a).arbeit),              sort:a=>summen(a).arbeit},
   {id:'teile',       label:'Teile',          art:'zahl', wert:a=>eur(summen(a).teile),               sort:a=>summen(a).teile},
   {id:'gesamt',      label:'Gesamt',         art:'zahl', wert:a=>eur(summen(a).brutto),              sort:a=>summen(a).brutto},
+  {id:'bilder',      label:'Bilder',         art:'zahl', wert:a=>(a.bilder&&a.bilder.length)?String(a.bilder.length):'', sort:a=>(a.bilder||[]).length},
   {id:'angelegt',    label:'Angelegt',       art:'eng',  wert:a=>datum(a.angelegt),                  sort:a=>a.angelegt||''}
 ];
 const SPALTEN_VORGABE = ['nummer','status','termin','fertig','kunde','fahrzeug','kennzeichen','gesamt'];
@@ -992,7 +1076,7 @@ function leerAuftrag(){
     id: 'a'+Date.now()+Math.random().toString(36).slice(2,6),
     nummer: neueNummer(), status:'angenommen',
     angelegt: new Date().toISOString().slice(0,10),
-    termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{},
+    termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
     kunde:{name:'',telefon:'',email:''},
     fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
     anliegen:'', notiz:'',
@@ -1080,6 +1164,16 @@ function zeichneEditor(){
     <textarea class="feld" id="fNotiz">${esc(a.notiz)}</textarea>
   </fieldset>
 
+  <fieldset><legend>Bilder</legend>
+    <div class="bilder" id="bildStreifen">${(a.bilder||[]).map((b,i)=>
+      `<div class="bildkachel" data-b="${i}"><span class="lade">lädt …</span>
+        <button class="weg" data-bweg="${i}" aria-label="Bild entfernen">✕</button></div>`).join('')}</div>
+    <input type="file" id="bildWahl" accept="image/*" multiple hidden>
+    <button class="plus" id="btnBild">+ Bild anhängen</button>
+    <button class="plus" id="btnBildOrdner">Bildordner wählen</button>
+    <p class="notiz" style="margin-top:6px">Bilder werden in den gemerkten Bildordner kopiert. Liegt der im
+      Drive-Ordner (Unterordner <b>Bilder</b>), sieht die Handy-App dieselben Aufnahmen.</p>
+  </fieldset>
   <fieldset><legend>Arbeitszeit</legend>
     <div class="pos-kopf"><span>Arbeitsschritt</span><span>Std</span><span>€/Std</span><span></span></div>
     <div id="listeArbeit">${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}</div>
@@ -1127,6 +1221,25 @@ function zeichneEditor(){
     const pruefen = ()=>{ if(!d.value) u.value = ''; u.disabled = !d.value; };
     d.onchange = pruefen; pruefen();
   });
+  bilderZeichnen();
+  document.getElementById('btnBildOrdner').onclick = async ()=>{ if(await bildOrdnerWaehlen()) zeichneEditor(); };
+  document.getElementById('btnBild').onclick = async ()=>{
+    if(!bilderGriff && !await bildOrdnerWaehlen()) return;
+    document.getElementById('bildWahl').click();
+  };
+  document.getElementById('bildWahl').onchange = async e =>{
+    const dateien = [...e.target.files];
+    e.target.value = '';
+    if(!dateien.length) return;
+    uebernehmen();
+    entwurf.bilder = entwurf.bilder || [];
+    for(const d of dateien){
+      try{ entwurf.bilder.push(await bildAblegen(d, entwurf.nummer)); }
+      catch(err){ melden(err.message, true); break; }
+    }
+    zeichneEditor();
+    melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
+  };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   document.getElementById('btnDrucken').onclick = ()=>{ uebernehmen(); drucken(entwurf); };
   const del = document.getElementById('btnLoeschen');
@@ -1149,6 +1262,35 @@ function zeichneEditor(){
       }else melden('Auftrag gelöscht');
     }
   };
+}
+
+async function bilderZeichnen(){
+  const streifen = document.getElementById('bildStreifen');
+  if(!streifen || !entwurf) return;
+  streifen.querySelectorAll('[data-bweg]').forEach(b => b.onclick = async ev =>{
+    ev.stopPropagation();
+    const i = +b.dataset.bweg, bild = entwurf.bilder[i];
+    if(!confirm('Bild ' + bild.name + ' entfernen? Die Datei wird aus dem Bildordner gelöscht.')) return;
+    uebernehmen();
+    entwurf.bilder.splice(i,1);
+    zeichneEditor();
+    await bildVerwerfen(bild);
+  });
+  for(const kachel of streifen.querySelectorAll('.bildkachel')){
+    const b = entwurf.bilder[+kachel.dataset.b];
+    if(!b) continue;
+    try{
+      const url = await bildUrl(b);
+      const img = document.createElement('img');
+      img.src = url; img.alt = b.name; img.title = b.name;
+      const t = kachel.querySelector('.lade'); if(t) t.remove();
+      kachel.insertBefore(img, kachel.firstChild);
+      img.onclick = ()=> bildAnzeigen(url);
+    }catch(e){
+      const t = kachel.querySelector('.lade');
+      if(t) t.textContent = e.message.length > 30 ? 'nicht verfügbar' : e.message;
+    }
+  }
 }
 
 function uebernehmen(){
@@ -1219,7 +1361,7 @@ function einstellungen(){
   </fieldset>
   <fieldset><legend>Kopfzeile Auftragszettel</legend>
     <label for="sBetrieb">Betrieb, Anschrift, Kontakt (mehrzeilig)</label>
-    <textarea class="feld" id="sBetrieb">${esc(s.betrieb)}</textarea>
+    <textarea class="feld" id="sBetrieb" rows="4">${esc(s.betrieb || VORGABE.betrieb)}</textarea>
   </fieldset>
   <fieldset><legend>Speicherdatei</legend>
     <p class="notiz" id="speicherInfo"></p>
@@ -1434,6 +1576,8 @@ document.getElementById('btnExport').onclick = ()=>{
   exportCsv();
 };
 document.getElementById('btnSpeicherort').onclick = einstellungen;
+document.getElementById('bildvollZu').onclick = ()=>{ document.getElementById('bildvoll').hidden = true; };
+document.getElementById('bildvoll').onclick = e =>{ if(e.target.id === 'bildvoll') document.getElementById('bildvoll').hidden = true; };
 (function(){
   const h = document.getElementById('huelle');
   let startAufHintergrund = false;
@@ -1450,7 +1594,7 @@ setInterval(()=>{
   if(kalBis && Date.now() > kalBis - 10*60*1000) kalAnmelden(false).catch(()=>{});
 }, 4*60*1000);
 
-(async ()=>{ kalLaden(); kalTokenAusSpeicher(); ansichtLaden(); await laden(); render(); speicherStand(); })();
+(async ()=>{ kalLaden(); kalTokenAusSpeicher(); ansichtLaden(); await bildOrdnerLaden(); await laden(); render(); speicherStand(); })();
 </script>
 </body>
 </html>

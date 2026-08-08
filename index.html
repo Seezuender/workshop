@@ -59,8 +59,9 @@
   .karte{background:var(--blech);border:1px solid var(--kante);border-left:5px solid var(--stahl);
          border-radius:var(--radius);padding:12px 14px;text-align:left;width:100%;display:block;position:relative}
   .karte .nr{font-family:var(--mono);font-size:11px;color:var(--stahl)}
-  .karte .fzg{font-family:var(--display);font-size:18px;font-weight:500;margin:2px 0 1px;padding-right:58px}
-  .karte .kunde{font-size:13px;color:var(--stahl)}
+  .karte .haupt{font-family:var(--display);font-size:19px;font-weight:600;margin:2px 0 1px;padding-right:58px;
+                letter-spacing:.02em}
+  .karte .neben{font-size:13px;color:var(--stahl)}
   .karte .anliegen{margin-top:8px;padding-top:8px;border-top:1px dashed var(--kante);font-size:13.5px;
                    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .karte .fuss{margin-top:8px;display:flex;justify-content:space-between;font-family:var(--mono);
@@ -125,6 +126,20 @@
   .k2-loeschen{flex:none;color:var(--stahl)}
   .k2-loeschen:hover{color:var(--signal);border-color:var(--signal)}
 
+  .bilder{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .bildkachel{position:relative;width:88px;height:88px;border:1px solid var(--kante);border-radius:var(--radius);
+              overflow:hidden;background:#F1F4F6;display:flex;align-items:center;justify-content:center}
+  .bildkachel img{width:100%;height:100%;object-fit:cover;display:block}
+  .bildkachel .lade{font-size:10px;color:var(--stahl);text-align:center;padding:4px}
+  .bildkachel .weg{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;
+                   border:0;background:rgba(18,23,28,.72);color:#fff;font-size:12px;line-height:1;padding:0}
+  .bildvoll{position:fixed;inset:0;z-index:70;background:rgba(10,13,16,.94);display:flex;
+            align-items:center;justify-content:center;padding:12px}
+  .bildvoll[hidden]{display:none}
+  .bildvoll img{max-width:100%;max-height:88vh;object-fit:contain}
+  .bildvoll button{position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;
+                   background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);
+                   border-radius:var(--radius);padding:8px 13px}
   .meldung{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom));
            z-index:60;background:var(--tinte);color:#fff;padding:9px 16px;border-radius:20px;font-size:13.5px;
            max-width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
@@ -157,6 +172,7 @@
   <div class="blatt-inhalt" id="blattInhalt"></div>
 </section>
 
+<div class="bildvoll" id="bildvoll" hidden><img id="bildvollImg" alt="Auftragsbild"><button id="bildvollZu">Schließen</button></div>
 <div class="meldung" id="meldung" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -168,7 +184,7 @@ const STATUS = [
   {id:'fertig',     label:'Fertig',     kurz:'Fertig'},
   {id:'abgeholt',   label:'Abgeholt',   kurz:'Abg'}
 ];
-const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
+const VORGABE = {stundensatz:96, kleinunternehmer:false, mwst:19, betrieb:'UCL Motorrad\nBergheimer Straße 26\n88677 Markdorf'};
 const SCOPE = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events';
 const ZEITZONE = 'Europe/Berlin';
 
@@ -328,6 +344,70 @@ async function sichern(){
   catch(e){ zustand('aus','Nicht gespeichert'); melden(e.message, true); }
 }
 
+/* ---------- Bilder in Drive ---------- */
+let bilderOrdnerId = null;
+const bildCache = new Map();
+
+async function bilderOrdner(){
+  if(bilderOrdnerId) return bilderOrdnerId;
+  if(!dateiId) await dateiSuchen();
+  const meta = await (await api('https://www.googleapis.com/drive/v3/files/'+dateiId+'?fields=parents')).json();
+  const eltern = (meta.parents && meta.parents[0]) || 'root';
+  const q = encodeURIComponent("'"+eltern+"' in parents and name = 'Bilder' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+  const j = await (await api('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id)')).json();
+  if(j.files && j.files.length){ bilderOrdnerId = j.files[0].id; }
+  else{
+    const r = await api('https://www.googleapis.com/drive/v3/files', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name:'Bilder', mimeType:'application/vnd.google-apps.folder', parents:[eltern]})});
+    bilderOrdnerId = (await r.json()).id;
+  }
+  return bilderOrdnerId;
+}
+function bildName(nummer, datei){
+  const endung = (datei.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+  const stempel = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
+  return (nummer || 'Auftrag') + '_' + stempel + '_' + Math.random().toString(36).slice(2,5) + '.' + endung;
+}
+async function bildHochladen(datei, nummer){
+  const ordner = await bilderOrdner();
+  const name = bildName(nummer, datei);
+  const r = await api('https://www.googleapis.com/drive/v3/files', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, parents:[ordner]})});
+  const id = (await r.json()).id;
+  await api('https://www.googleapis.com/upload/drive/v3/files/'+id+'?uploadType=media',
+    {method:'PATCH', headers:{'Content-Type': datei.type || 'image/jpeg'}, body: datei});
+  return {name, id};
+}
+async function bildId(b){
+  if(b.id) return b.id;
+  const ordner = await bilderOrdner();
+  const q = encodeURIComponent("'"+ordner+"' in parents and name = '"+String(b.name).replace(/'/g,"\\'")+"' and trashed = false");
+  const j = await (await api('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id)')).json();
+  if(!j.files || !j.files.length) throw new Error('Bild nicht in Drive gefunden: ' + b.name);
+  b.id = j.files[0].id;
+  return b.id;
+}
+async function bildUrl(b){
+  const schluessel = b.id || b.name;
+  if(bildCache.has(schluessel)) return bildCache.get(schluessel);
+  const id = await bildId(b);
+  const r = await api('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media');
+  const url = URL.createObjectURL(await r.blob());
+  bildCache.set(id, url); bildCache.set(b.name, url);
+  return url;
+}
+async function bildVerwerfen(b){
+  try{
+    const id = await bildId(b);
+    await api('https://www.googleapis.com/drive/v3/files/'+id, {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({trashed:true})});
+  }catch(e){}
+}
+function bildAnzeigen(url){
+  document.getElementById('bildvollImg').src = url;
+  document.getElementById('bildvoll').hidden = false;
+}
+
 /* ---------- Kalender ---------- */
 const TERMINE = [
   {feld:'termin', uhr:'uhrAnnahme', schl:'annahme', wort:'Annahme'},
@@ -444,9 +524,10 @@ function renderListe(){
     return `<button class="karte k-${a.status}" data-id="${a.id}">
       <div class="plakette s-${a.status}">${st.kurz}</div>
       <div class="nr">${esc(a.nummer)}</div>
-      <div class="fzg">${esc(fzg)}</div>
-      <div class="kunde">${esc(a.kunde?.name||'Kunde offen')}${a.fahrzeug?.kennzeichen?' · <span class="kennz">'+esc(a.fahrzeug.kennzeichen)+'</span>':''}</div>
+      <div class="haupt">${esc(a.kunde?.name || 'Kunde offen')}</div>
+      <div class="neben">${esc(fzg)}${a.fahrzeug?.kennzeichen?' · <span class="kennz">'+esc(a.fahrzeug.kennzeichen)+'</span>':''}</div>
       ${a.anliegen?`<div class="anliegen">${esc(a.anliegen)}</div>`:''}
+      ${(a.bilder&&a.bilder.length)?`<div class="nr" style="margin-top:6px">${a.bilder.length} Bild${a.bilder.length>1?'er':''}</div>`:''}
       <div class="fuss"><span>${[a.termin?'An '+datum(a.termin):'', a.fertig?'Fertig '+datum(a.fertig):''].filter(Boolean).join(' · ') || 'angelegt '+datum(a.angelegt)}</span>
         <span class="summe">${eur(s.brutto)}</span></div></button>`;
   }).join('');
@@ -457,7 +538,7 @@ function render(){ renderReiter(); renderListe(); }
 /* ---------- Editor ---------- */
 function leerAuftrag(){
   return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
-    angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{},
+    angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
     kunde:{name:'',telefon:'',email:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
@@ -522,6 +603,14 @@ function zeichne(){
     <label for="fAnliegen">Auftragsumfang</label><textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
     <label for="fNotiz">Interne Notiz</label><textarea class="feld" id="fNotiz">${esc(a.notiz)}</textarea>
   </fieldset>
+  <fieldset><legend>Bilder</legend>
+    <div class="bilder" id="bildStreifen">${(a.bilder||[]).map((b,i)=>
+      `<div class="bildkachel" data-b="${i}"><span class="lade">lädt …</span>
+        <button class="weg" data-bweg="${i}" aria-label="Bild entfernen">✕</button></div>`).join('')}</div>
+    <input type="file" id="bildWahl" accept="image/*" multiple hidden>
+    <button class="plus" id="btnBild">+ Bild anhängen</button>
+    <p class="notiz" style="margin-top:6px">Die Bilder liegen im Ordner <b>Bilder</b> neben der Auftragsdatei in Drive und sind auch am Rechner sichtbar.</p>
+  </fieldset>
   <fieldset><legend>Arbeitszeit</legend>
     <div class="pos-kopf"><span>Schritt</span><span>Std</span><span>€/Std</span><span></span></div>
     ${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}
@@ -564,6 +653,23 @@ function zeichne(){
     d.onchange = ()=>{ pruefen(); if(!d.value) melden('Datum entfernt – der Kalendereintrag verschwindet beim Speichern.'); };
     pruefen();
   });
+  bilderZeichnen();
+  document.getElementById('btnBild').onclick = ()=> document.getElementById('bildWahl').click();
+  document.getElementById('bildWahl').onchange = async e =>{
+    const dateien = [...e.target.files];
+    e.target.value = '';
+    if(!dateien.length) return;
+    uebernehmen();
+    entwurf.bilder = entwurf.bilder || [];
+    for(const d of dateien){
+      try{
+        melden('Lade ' + d.name + ' hoch …');
+        entwurf.bilder.push(await bildHochladen(d, entwurf.nummer));
+      }catch(err){ melden('Hochladen fehlgeschlagen: ' + err.message, true); }
+    }
+    zeichne();
+    melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
+  };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
   if(d) d.onclick = async ()=>{
@@ -579,6 +685,35 @@ function zeichne(){
     else melden('Auftrag '+nr+' gelöscht'+(bilanz.geloescht?' samt '+bilanz.geloescht+(bilanz.geloescht>1?' Kalendereinträgen':' Kalendereintrag'):''));
   };
 }
+async function bilderZeichnen(){
+  const streifen = document.getElementById('bildStreifen');
+  if(!streifen || !entwurf) return;
+  streifen.querySelectorAll('[data-bweg]').forEach(b => b.onclick = async ev =>{
+    ev.stopPropagation();
+    const i = +b.dataset.bweg, bild = entwurf.bilder[i];
+    if(!confirm('Bild entfernen? Es wandert in den Drive-Papierkorb.')) return;
+    uebernehmen();
+    entwurf.bilder.splice(i,1);
+    zeichne();
+    await bildVerwerfen(bild);
+  });
+  for(const kachel of streifen.querySelectorAll('.bildkachel')){
+    const b = entwurf.bilder[+kachel.dataset.b];
+    if(!b) continue;
+    try{
+      const url = await bildUrl(b);
+      const img = document.createElement('img');
+      img.src = url; img.alt = b.name;
+      kachel.querySelector('.lade')?.remove();
+      kachel.insertBefore(img, kachel.firstChild);
+      img.onclick = ()=> bildAnzeigen(url);
+    }catch(e){
+      const t = kachel.querySelector('.lade');
+      if(t) t.textContent = 'nicht gefunden';
+    }
+  }
+}
+
 function uebernehmen(){
   const v = id => (document.getElementById(id)||{}).value || '';
   entwurf.termin = v('fTermin');
@@ -633,6 +768,19 @@ function setup(){
     </label>
     <button class="k2" id="btnVerbinden" style="margin-top:4px">Mit Google verbinden</button>
   </fieldset>
+  <fieldset><legend>Betrieb</legend>
+    <p class="notiz">Erscheint auf dem Auftragszettel am Rechner. Wird zusammen mit den Aufträgen in Drive gespeichert.</p>
+    <label for="cBetrieb">Betrieb, Anschrift, Kontakt</label>
+    <textarea class="feld" id="cBetrieb" rows="4">${esc(daten.settings.betrieb || VORGABE.betrieb)}</textarea>
+    <label for="cStd">Stundensatz (€)</label>
+    <input class="feld" id="cStd" type="number" step="0.5" value="${esc(daten.settings.stundensatz)}">
+    <label for="cUst">Umsatzsteuer</label>
+    <select class="feld" id="cUst">
+      <option value="0" ${!daten.settings.kleinunternehmer?'selected':''}>Regelbesteuerung – USt ausweisen</option>
+      <option value="1" ${daten.settings.kleinunternehmer?'selected':''}>Kleinunternehmer § 19 UStG</option>
+    </select>
+    <button class="k2" id="btnBetriebSpeichern">Betriebsdaten speichern</button>
+  </fieldset>
   <fieldset><legend>Status</legend>
     <p class="notiz">${dateiId ? 'Verbunden mit <code>'+esc(cfg.dateiName)+'</code>. Aufträge: '+daten.auftraege.length
       : 'Noch keine Datei verbunden.'}</p>
@@ -653,6 +801,12 @@ function setup(){
     try{ await anmelden(true); await holen(); zurueck(); melden('Verbunden'); }
     catch(e){ melden(e.message, true); }
   };
+  document.getElementById('btnBetriebSpeichern').onclick = async ()=>{
+    daten.settings.betrieb = document.getElementById('cBetrieb').value;
+    daten.settings.stundensatz = parseFloat(String(document.getElementById('cStd').value).replace(',','.')) || VORGABE.stundensatz;
+    daten.settings.kleinunternehmer = document.getElementById('cUst').value === '1';
+    await sichern(); render();
+  };
   document.getElementById('btnNeuLaden').onclick = async ()=>{ dateiId = null; await holen(); zurueck(); };
   document.getElementById('btnAbmelden').onclick = ()=>{
     tokenVerwerfen(); dateiId = null;
@@ -672,6 +826,8 @@ function setup(){
 /* ---------- Start ---------- */
 document.getElementById('btnNeu').onclick = ()=> editor(null);
 document.getElementById('btnZurueck').onclick = zurueck;
+document.getElementById('bildvollZu').onclick = ()=>{ document.getElementById('bildvoll').hidden = true; };
+document.getElementById('bildvoll').onclick = e =>{ if(e.target.id === 'bildvoll') document.getElementById('bildvoll').hidden = true; };
 document.getElementById('btnSetup').onclick = setup;
 document.getElementById('btnSync').onclick = ()=> holen();
 document.getElementById('btnJetzt').onclick = ()=> holen();
