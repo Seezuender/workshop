@@ -345,7 +345,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 19';
+const VERSION = '2026-08-08 / 21';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -840,10 +840,37 @@ function scheinFortschritt(text, anteil){
 }
 function scheinSchliessen(){ document.getElementById('scheinbox').hidden = true; }
 
-async function scheinLesen(datei){
+async function scheinBildWaehlen(){
+  uebernehmen();
+  const bilder = entwurf.bilder || [];
+  if(!bilder.length){ melden('Erst ein Bild des Fahrzeugscheins anhängen.', true); return; }
+  if(bilder.length === 1){ scheinLesen(bilder[0]); return; }
+  const b = document.getElementById('scheinblatt');
+  b.innerHTML = '<h3>Welches Bild ist der Fahrzeugschein?</h3>'
+    + '<p class="notiz">Auf das Bild klicken, das ausgelesen werden soll.</p>'
+    + '<div class="bilder">' + bilder.map((x,i)=>
+        '<div class="bildkachel" data-wahl="' + i + '"><span class="lade">lädt …</span></div>').join('') + '</div>'
+    + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
+    + '<button class="k2" id="scheinWahlAb">Abbrechen</button></div>';
+  document.getElementById('scheinbox').hidden = false;
+  document.getElementById('scheinWahlAb').onclick = scheinSchliessen;
+  b.querySelectorAll('.bildkachel').forEach(async kachel=>{
+    const i = +kachel.dataset.wahl, bild = bilder[i];
+    kachel.onclick = ()=> scheinLesen(bild);
+    try{
+      const url = await bildUrl(bild);
+      const img = document.createElement('img'); img.src = url; img.alt = bild.name;
+      kachel.querySelector('.lade')?.remove(); kachel.insertBefore(img, kachel.firstChild);
+    }catch(e){ const t = kachel.querySelector('.lade'); if(t) t.textContent = 'nicht ladbar'; }
+  });
+}
+
+async function scheinLesen(quelle){
   try{
     scheinFortschritt('Texterkennung wird geladen …', 0);
     await tesseractLaden();
+    scheinFortschritt('Bild wird geladen …', 0.03);
+    const datei = (quelle instanceof Blob) ? quelle : await (await fetch(await bildUrl(quelle))).blob();
     scheinFortschritt('Bild wird gelesen …', 0.05);
     const erg = await Tesseract.recognize(datei, 'deu', {
       logger: m => { if(m.status === 'recognizing text') scheinFortschritt('Bild wird gelesen …', m.progress); }
@@ -1304,7 +1331,6 @@ function zeichneEditor(){
       <div><label for="fKm">km-Stand</label><input class="feld" id="fKm" type="number" inputmode="numeric" value="${esc(a.fahrzeug.km)}"></div>
     </div>
     <label for="fFin">FIN</label><input class="feld" id="fFin" value="${esc(a.fahrzeug.fin)}">
-    <input type="file" id="scheinWahl" accept="image/*" hidden>
     <button class="plus" id="btnSchein">Fahrzeugschein hochladen und auslesen</button>
   </fieldset>
 
@@ -1391,23 +1417,7 @@ function zeichneEditor(){
     zeichneEditor();
     melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
   };
-  document.getElementById('btnSchein').onclick = async ()=>{
-    if(!bilderGriff && !await bildOrdnerWaehlen()) return;
-    document.getElementById('scheinWahl').click();
-  };
-  document.getElementById('scheinWahl').onchange = async e =>{
-    const d = e.target.files[0];
-    e.target.value = '';
-    if(!d) return;
-    uebernehmen();
-    entwurf.bilder = entwurf.bilder || [];
-    try{
-      entwurf.bilder.push(await bildAblegen(d, entwurf.nummer));
-      zeichneEditor();
-      melden('Fahrzeugschein angehängt – wird ausgelesen …');
-    }catch(err){ melden('Anhängen fehlgeschlagen: ' + err.message + ' – ich lese das Bild trotzdem aus.', true); }
-    scheinLesen(d);
-  };
+  document.getElementById('btnSchein').onclick = ()=> scheinBildWaehlen();
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   document.getElementById('btnDrucken').onclick = ()=>{ uebernehmen(); drucken(entwurf); };
   const del = document.getElementById('btnLoeschen');

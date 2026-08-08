@@ -360,6 +360,48 @@ async function sichern(){
 }
 
 
+/* ---------- Bilder anhängen (Ablage oder Foto) ---------- */
+async function bilderAnhaengen(dateien, feld){
+  if(feld) feld.value = '';
+  if(!dateien || !dateien.length) return;
+  uebernehmen();
+  entwurf.bilder = entwurf.bilder || [];
+  for(const d of dateien){
+    try{
+      melden('Lade ' + d.name + ' hoch …');
+      entwurf.bilder.push(await bildHochladen(d, entwurf.nummer));
+    }catch(err){ melden('Hochladen fehlgeschlagen: ' + err.message, true); }
+  }
+  zeichne();
+  melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
+}
+
+/* ---------- Fahrzeugschein aus angehängtem Bild wählen ---------- */
+function scheinBildWaehlen(){
+  uebernehmen();
+  const bilder = entwurf.bilder || [];
+  if(!bilder.length){ melden('Erst ein Bild des Fahrzeugscheins anhängen – aus der Ablage oder per Foto.', true); return; }
+  if(bilder.length === 1){ scheinLesen(bilder[0]); return; }
+  const b = document.getElementById('scheinblatt');
+  b.innerHTML = '<h3>Welches Bild ist der Fahrzeugschein?</h3>'
+    + '<p class="notiz">Tippe das Bild an, das ausgelesen werden soll.</p>'
+    + '<div class="bilder">' + bilder.map((x,i)=>
+        '<div class="bildkachel" data-wahl="' + i + '"><span class="lade">lädt …</span></div>').join('') + '</div>'
+    + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
+    + '<button class="k2" id="scheinWahlAb">Abbrechen</button></div>';
+  document.getElementById('scheinbox').hidden = false;
+  document.getElementById('scheinWahlAb').onclick = scheinSchliessen;
+  b.querySelectorAll('.bildkachel').forEach(async kachel=>{
+    const i = +kachel.dataset.wahl, bild = bilder[i];
+    kachel.onclick = ()=> scheinLesen(bild);
+    try{
+      const url = await bildUrl(bild);
+      const img = document.createElement('img'); img.src = url; img.alt = bild.name;
+      kachel.querySelector('.lade')?.remove(); kachel.insertBefore(img, kachel.firstChild);
+    }catch(e){ const t = kachel.querySelector('.lade'); if(t) t.textContent = 'nicht ladbar'; }
+  });
+}
+
 /* ---------- Fahrzeugschein auslesen (Texterkennung im Browser) ---------- */
 const SCHEINFELDER = [
   {id:'kennzeichen', bez:'Kennzeichen'},
@@ -436,10 +478,13 @@ function scheinFortschritt(text, anteil){
 }
 function scheinSchliessen(){ document.getElementById('scheinbox').hidden = true; }
 
-async function scheinLesen(datei){
+async function scheinLesen(quelle){
   try{
     scheinFortschritt('Texterkennung wird geladen …', 0);
     await tesseractLaden();
+    scheinFortschritt('Bild wird geladen …', 0.03);
+    // quelle ist entweder eine Datei/Blob oder ein angehaengtes Bild-Objekt aus Drive
+    const datei = (quelle instanceof Blob) ? quelle : await (await fetch(await bildUrl(quelle))).blob();
     scheinFortschritt('Bild wird gelesen …', 0.05);
     const erg = await Tesseract.recognize(datei, 'deu', {
       logger: m => { if(m.status === 'recognizing text') scheinFortschritt('Bild wird gelesen …', m.progress); }
@@ -747,7 +792,6 @@ function zeichne(){
       <input class="feld" id="fKm" type="number" inputmode="numeric" placeholder="km-Stand" value="${esc(a.fahrzeug.km||'')}">
     </div>
     <input class="feld" id="fFin" placeholder="FIN" value="${esc(a.fahrzeug.fin||'')}">
-    <input type="file" id="scheinWahl" accept="image/*" hidden>
     <button class="plus" id="btnSchein">Fahrzeugschein hochladen und auslesen</button>
   </fieldset>
   <fieldset><legend>Auftrag</legend>
@@ -759,7 +803,9 @@ function zeichne(){
       `<div class="bildkachel" data-b="${i}"><span class="lade">lädt …</span>
         <button class="weg" data-bweg="${i}" aria-label="Bild entfernen">✕</button></div>`).join('')}</div>
     <input type="file" id="bildWahl" accept="image/*" multiple hidden>
-    <button class="plus" id="btnBild">+ Bild anhängen</button>
+    <input type="file" id="fotoWahl" accept="image/*" capture="environment" hidden>
+    <button class="plus" id="btnBild">+ Bild aus Ablage</button>
+    <button class="plus" id="btnFoto">+ Foto aufnehmen</button>
     <p class="notiz" style="margin-top:6px">Die Bilder liegen im Ordner <b>Bilder</b> neben der Auftragsdatei in Drive und sind auch am Rechner sichtbar.</p>
   </fieldset>
   <fieldset><legend>Arbeitszeit</legend>
@@ -806,35 +852,10 @@ function zeichne(){
   });
   bilderZeichnen();
   document.getElementById('btnBild').onclick = ()=> document.getElementById('bildWahl').click();
-  document.getElementById('bildWahl').onchange = async e =>{
-    const dateien = [...e.target.files];
-    e.target.value = '';
-    if(!dateien.length) return;
-    uebernehmen();
-    entwurf.bilder = entwurf.bilder || [];
-    for(const d of dateien){
-      try{
-        melden('Lade ' + d.name + ' hoch …');
-        entwurf.bilder.push(await bildHochladen(d, entwurf.nummer));
-      }catch(err){ melden('Hochladen fehlgeschlagen: ' + err.message, true); }
-    }
-    zeichne();
-    melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
-  };
-  document.getElementById('btnSchein').onclick = ()=> document.getElementById('scheinWahl').click();
-  document.getElementById('scheinWahl').onchange = async e =>{
-    const d = e.target.files[0];
-    e.target.value = '';
-    if(!d) return;
-    uebernehmen();
-    entwurf.bilder = entwurf.bilder || [];
-    try{
-      melden('Fahrzeugschein wird hochgeladen …');
-      entwurf.bilder.push(await bildHochladen(d, entwurf.nummer));
-      zeichne();
-    }catch(err){ melden('Hochladen fehlgeschlagen: ' + err.message + ' – ich lese das Bild trotzdem aus.', true); }
-    scheinLesen(d);
-  };
+  document.getElementById('btnFoto').onclick = ()=> document.getElementById('fotoWahl').click();
+  document.getElementById('fotoWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
+  document.getElementById('bildWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
+  document.getElementById('btnSchein').onclick = ()=> scheinBildWaehlen();
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
   if(d) d.onclick = async ()=>{
@@ -913,7 +934,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-08 / 15';
+const APPVERSION = '2026-08-08 / 17';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
