@@ -747,8 +747,8 @@ function zeichne(){
       <input class="feld" id="fKm" type="number" inputmode="numeric" placeholder="km-Stand" value="${esc(a.fahrzeug.km||'')}">
     </div>
     <input class="feld" id="fFin" placeholder="FIN" value="${esc(a.fahrzeug.fin||'')}">
-    <input type="file" id="scheinWahl" accept="image/*" capture="environment" hidden>
-    <button class="plus" id="btnSchein">Fahrzeugschein fotografieren / auslesen</button>
+    <input type="file" id="scheinWahl" accept="image/*" hidden>
+    <button class="plus" id="btnSchein">Fahrzeugschein hochladen und auslesen</button>
   </fieldset>
   <fieldset><legend>Auftrag</legend>
     <label for="fAnliegen">Auftragsumfang</label><textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
@@ -822,9 +822,18 @@ function zeichne(){
     melden(dateien.length > 1 ? dateien.length + ' Bilder angehängt' : 'Bild angehängt');
   };
   document.getElementById('btnSchein').onclick = ()=> document.getElementById('scheinWahl').click();
-  document.getElementById('scheinWahl').onchange = e =>{
-    const d = e.target.files[0]; e.target.value = '';
-    if(d) scheinLesen(d);
+  document.getElementById('scheinWahl').onchange = async e =>{
+    const d = e.target.files[0];
+    e.target.value = '';
+    if(!d) return;
+    uebernehmen();
+    entwurf.bilder = entwurf.bilder || [];
+    try{
+      melden('Fahrzeugschein wird hochgeladen …');
+      entwurf.bilder.push(await bildHochladen(d, entwurf.nummer));
+      zeichne();
+    }catch(err){ melden('Hochladen fehlgeschlagen: ' + err.message + ' – ich lese das Bild trotzdem aus.', true); }
+    scheinLesen(d);
   };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
