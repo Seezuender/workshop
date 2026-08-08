@@ -345,7 +345,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 22';
+const VERSION = '2026-08-08 / 23';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -574,7 +574,7 @@ function neueNummer(){
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ---------- Google Kalender ---------- */
-const KAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const KAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive';
 const ZEITZONE = 'Europe/Berlin';
 const TERMINE = [
   {feld:'termin', uhr:'uhrAnnahme', schl:'annahme', wort:'Annahme'},
@@ -636,6 +636,58 @@ async function kalApi(url, opt){
   }
   return r;
 }
+/* ---------- Drive-Zugriff für Bilder ---------- */
+let bilderOrdnerId = null;
+
+async function driveApi(url, opt){
+  opt = opt || {};
+  if(!kal.clientId) throw new Error('Keine Client-ID hinterlegt – Einstellungen → Google Kalender');
+  if(!kalGueltig()){
+    try{ await kalAnmelden(false); }
+    catch(e){ throw new Error('Google-Anmeldung nötig – Einstellungen → Google Kalender'); }
+  }
+  const ruf = ()=> fetch(url, Object.assign({}, opt, {headers: Object.assign({Authorization:'Bearer '+kalToken}, opt.headers||{})}));
+  let r = await ruf();
+  if(r.status === 401 || r.status === 403){
+    // Zugriffsrecht für Drive fehlt noch (alte Anmeldung) – einmal neu bestätigen lassen
+    kalAbmelden();
+    try{ await kalAnmelden(true); }
+    catch(e){ throw new Error('Drive-Zugriff nicht bestätigt – bitte in den Einstellungen neu verbinden'); }
+    r = await ruf();
+  }
+  if(!r.ok){
+    let grund = '';
+    try{ const j = await r.clone().json(); grund = (j.error && (j.error.message || j.error.status)) || ''; }
+    catch(e){ try{ grund = (await r.clone().text()).slice(0,200); }catch(e2){} }
+    throw new Error('Drive meldet ' + r.status + (grund ? ': ' + grund : ''));
+  }
+  return r;
+}
+
+async function bilderOrdnerDrive(){
+  if(bilderOrdnerId) return bilderOrdnerId;
+  const gemerkt = daten.settings && daten.settings.bilderOrdner;
+  if(gemerkt){ bilderOrdnerId = gemerkt; return bilderOrdnerId; }
+  const q = encodeURIComponent("name = 'Bilder' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+  const j = await (await driveApi('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name)')).json();
+  if(!j.files || !j.files.length)
+    throw new Error('Ordner "Bilder" nicht in Drive gefunden – am Handy einmal ein Bild anhängen, dann legt die App ihn an');
+  if(j.files.length > 1) melden('Mehrere Ordner namens "Bilder" gefunden – ich nehme den ersten.');
+  bilderOrdnerId = j.files[0].id;
+  if(daten.settings) daten.settings.bilderOrdner = bilderOrdnerId;
+  return bilderOrdnerId;
+}
+
+async function bildIdDrive(b){
+  if(b.id) return b.id;
+  const ordner = await bilderOrdnerDrive();
+  const q = encodeURIComponent("'"+ordner+"' in parents and name = '"+String(b.name).replace(/'/g,"\\'")+"' and trashed = false");
+  const j = await (await driveApi('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id)')).json();
+  if(!j.files || !j.files.length) throw new Error('Bild nicht in Drive gefunden: ' + b.name);
+  b.id = j.files[0].id;
+  return b.id;
+}
+
 function plusTag(iso){ const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); }
 function erinnerungMinuten(start){
   const e = new Date(start); e.setDate(e.getDate()-1); e.setHours(14,0,0,0);
@@ -966,26 +1018,58 @@ function bildName(nummer, datei){
   return (nummer || 'Auftrag') + '_' + stempel + '_' + Math.random().toString(36).slice(2,5) + '.' + endung;
 }
 async function bildAblegen(datei, nummer){
-  if(!bilderGriff && !await bildOrdnerWaehlen()) throw new Error('Kein Bildordner gewählt');
-  if(!await bildOrdnerSichern(true)) throw new Error('Kein Schreibrecht für den Bildordner');
   const name = bildName(nummer, datei);
-  const h = await bilderGriff.getFileHandle(name, {create:true});
-  const w = await h.createWritable();
-  await w.write(datei); await w.close();
-  return {name};
+  // Bevorzugt nach Google Drive – dann sieht die Handy-App das Bild sofort
+  try{
+    const ordner = await bilderOrdnerDrive();
+    const r = await driveApi('https://www.googleapis.com/drive/v3/files', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, parents:[ordner]})});
+    const id = (await r.json()).id;
+    await driveApi('https://www.googleapis.com/upload/drive/v3/files/'+id+'?uploadType=media',
+      {method:'PATCH', headers:{'Content-Type': datei.type || 'image/jpeg'}, body: datei});
+    return {name, id};
+  }catch(eDrive){
+    // Rückfall: örtlicher Bildordner
+    if(!bilderGriff && !await bildOrdnerWaehlen()) throw eDrive;
+    if(!await bildOrdnerSichern(true)) throw eDrive;
+    const h = await bilderGriff.getFileHandle(name, {create:true});
+    const w = await h.createWritable();
+    await w.write(datei); await w.close();
+    melden('Drive nicht erreichbar – Bild liegt nur örtlich: ' + eDrive.message, true);
+    return {name};
+  }
 }
 async function bildUrl(b){
-  if(bildCache.has(b.name)) return bildCache.get(b.name);
-  if(!bilderGriff) throw new Error('Bildordner nicht verbunden');
-  if(!await bildOrdnerSichern(false)) throw new Error('Zugriff auf den Bildordner bestätigen');
-  const h = await bilderGriff.getFileHandle(b.name);
-  const url = URL.createObjectURL(await h.getFile());
-  bildCache.set(b.name, url);
-  return url;
+  const schluessel = b.id || b.name;
+  if(bildCache.has(schluessel)) return bildCache.get(schluessel);
+  // 1. Weg: direkt aus Google Drive – unabhängig von Ordnerwahl und Synchronisierung
+  try{
+    const id = await bildIdDrive(b);
+    const r = await driveApi('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media');
+    const url = URL.createObjectURL(await r.blob());
+    bildCache.set(id, url); bildCache.set(b.name, url);
+    return url;
+  }catch(eDrive){
+    // 2. Weg: örtlicher Bildordner (ältere Bilder, die nur lokal liegen)
+    try{
+      if(!bilderGriff) throw eDrive;
+      if(!await bildOrdnerSichern(false)) throw eDrive;
+      const h = await bilderGriff.getFileHandle(b.name);
+      const url = URL.createObjectURL(await h.getFile());
+      bildCache.set(b.name, url);
+      return url;
+    }catch(eOrt){ throw eDrive; }
+  }
 }
 async function bildVerwerfen(b){
+  try{
+    const id = await bildIdDrive(b);
+    await driveApi('https://www.googleapis.com/drive/v3/files/'+id, {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({trashed:true})});
+  }catch(e){}
   try{ if(bilderGriff && await bildOrdnerSichern(false)) await bilderGriff.removeEntry(b.name); }catch(e){}
   bildCache.delete(b.name);
+  if(b.id) bildCache.delete(b.id);
 }
 function bildAnzeigen(url){
   document.getElementById('bildvollImg').src = url;
