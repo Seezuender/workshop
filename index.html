@@ -352,13 +352,14 @@ function terminObjekt(a, t){
     ev.start = {date: tag};
     ev.end   = {date: plusTag(tag)};
   }
-  ev.reminders = {useDefault:false, overrides:[
-    {method:'popup', minutes: erinnerungMinuten(start)}
-  ]};
+  const erinnerungen = [{method:'popup', minutes: erinnerungMinuten(start)}];
+  if(uhr) erinnerungen.push({method:'popup', minutes: 60});   // eine Stunde vorher
+  ev.reminders = {useDefault:false, overrides: erinnerungen};
   return ev;
 }
 async function kalenderAbgleich(a){
-  if(!cfg.kalender) return;
+  const bilanz = {neu:0, geaendert:0, geloescht:0};
+  if(!cfg.kalender) return bilanz;
   a.kalender = a.kalender || {};
   const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
   for(const t of TERMINE){
@@ -366,30 +367,39 @@ async function kalenderAbgleich(a){
     const id = a.kalender[t.schl];
     try{
       if(!ev){
-        if(id){ await api(basis+'/'+id, {method:'DELETE'}); delete a.kalender[t.schl]; }
+        if(id){ await api(basis+'/'+id, {method:'DELETE'}); delete a.kalender[t.schl]; bilanz.geloescht++; }
         continue;
       }
       if(id){
         const r = await api(basis+'/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
-        await r.json();
+        await r.json(); bilanz.geaendert++;
       }else{
         const r = await api(basis+'?sendUpdates=none', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(ev)});
-        a.kalender[t.schl] = (await r.json()).id;
+        a.kalender[t.schl] = (await r.json()).id; bilanz.neu++;
       }
     }catch(e){
       if(id && /404|410/.test(e.message)){ delete a.kalender[t.schl]; continue; }
       throw new Error('Kalender: ' + e.message);
     }
   }
+  return bilanz;
 }
 async function kalenderEntfernen(a){
-  if(!a.kalender) return;
+  const bilanz = {geloescht:0, offen:0};
+  if(!a || !a.kalender) return bilanz;
   const basis = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
   for(const t of TERMINE){
     const id = a.kalender[t.schl];
-    if(id){ try{ await api(basis+'/'+id, {method:'DELETE'}); }catch(e){} }
+    if(!id) continue;
+    try{
+      await api(basis+'/'+id, {method:'DELETE'});
+      delete a.kalender[t.schl]; bilanz.geloescht++;
+    }catch(e){
+      if(/404|410/.test(e.message)){ delete a.kalender[t.schl]; }   // war schon weg
+      else bilanz.offen++;
+    }
   }
-  a.kalender = {};
+  return bilanz;
 }
 
 /* ---------- Liste ---------- */
@@ -476,7 +486,7 @@ function zeichne(){
       <input class="feld" id="fFertig" type="date" value="${esc(a.fertig||'')}">
       <input class="feld" id="fUhrFertig" type="time" value="${esc(a.uhrFertig||'')}">
     </div>
-    <p class="notiz">${cfg.kalender ? 'Beide Termine landen im Google Kalender, Erinnerung jeweils am Vortag um 14:00 Uhr. Ohne Uhrzeit als ganztägiger Eintrag.' : 'Kalendereintrag ist unter Konto abgeschaltet.'}</p>
+    <p class="notiz">${cfg.kalender ? 'Beide Termine landen im Google Kalender. Erinnerung am Vortag um 14:00 Uhr und – sofern eine Uhrzeit gesetzt ist – zusätzlich eine Stunde vorher. Ohne Uhrzeit als ganztägiger Eintrag.' : 'Kalendereintrag ist unter Konto abgeschaltet.'}</p>
   </fieldset>
   <fieldset><legend>Kunde</legend>
     <input class="feld" id="kName" placeholder="Name" value="${esc(a.kunde.name||'')}">
@@ -530,23 +540,39 @@ function zeichne(){
     uebernehmen(); const [art,n] = b.dataset.weg.split(':'); entwurf[art].splice(+n,1); zeichne();
   });
   i.querySelectorAll('.pos .feld').forEach(f=> f.onchange = ()=>{ uebernehmen(); zeichne(); });
+  [['fTermin','fUhrAnnahme'],['fFertig','fUhrFertig']].forEach(([dId,uId])=>{
+    const d = document.getElementById(dId), u = document.getElementById(uId);
+    if(!d || !u) return;
+    const pruefen = ()=>{
+      const leer = !d.value;
+      if(leer) u.value = '';
+      u.disabled = leer;
+      u.placeholder = leer ? 'ohne Datum' : '';
+    };
+    d.onchange = ()=>{ pruefen(); if(!d.value) melden('Datum entfernt – der Kalendereintrag verschwindet beim Speichern.'); };
+    pruefen();
+  });
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
   if(d) d.onclick = async ()=>{
     if(!confirm('Auftrag '+entwurf.nummer+' löschen? Vorhandene Kalendereinträge werden mitgelöscht.')) return;
     const weg = daten.auftraege.find(x=>x.id===aktuelleId);
+    const nr = entwurf.nummer;
     daten.auftraege = daten.auftraege.filter(x=>x.id!==aktuelleId);
     zurueck(); render();
-    if(weg && cfg.kalender) try{ await kalenderEntfernen(weg); }catch(e){}
+    let bilanz = {geloescht:0, offen:0};
+    try{ zustand('laeuft','Kalender …'); bilanz = await kalenderEntfernen(weg); }catch(e){ bilanz.offen++; }
     await sichern();
+    if(bilanz.offen) melden('Auftrag '+nr+' gelöscht, aber '+bilanz.offen+' Kalendereintrag/-einträge konnten nicht entfernt werden – bitte im Kalender prüfen.', true);
+    else melden('Auftrag '+nr+' gelöscht'+(bilanz.geloescht?' samt '+bilanz.geloescht+(bilanz.geloescht>1?' Kalendereinträgen':' Kalendereintrag'):''));
   };
 }
 function uebernehmen(){
   const v = id => (document.getElementById(id)||{}).value || '';
   entwurf.termin = v('fTermin');
-  entwurf.uhrAnnahme = v('fUhrAnnahme');
+  entwurf.uhrAnnahme = entwurf.termin ? v('fUhrAnnahme') : '';
   entwurf.fertig = v('fFertig');
-  entwurf.uhrFertig = v('fUhrFertig');
+  entwurf.uhrFertig = entwurf.fertig ? v('fUhrFertig') : '';
   entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
                       fin:v('fFin').toUpperCase(), km:v('fKm')};
@@ -567,11 +593,12 @@ async function speichernAuftrag(){
   if(i>=0) daten.auftraege[i] = entwurf; else daten.auftraege.unshift(entwurf);
   const a = entwurf;
   zurueck(); render();
-  let hinweis = '';
-  try{ zustand('laeuft','Kalender …'); await kalenderAbgleich(a); }
+  let hinweis = '', bilanz = null;
+  try{ zustand('laeuft','Kalender …'); bilanz = await kalenderAbgleich(a); }
   catch(e){ hinweis = e.message; }
   await sichern();
   if(hinweis) melden(hinweis + ' – Auftrag ist gespeichert, Termin nicht eingetragen.', true);
+  else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
 /* ---------- Konto & Einrichtung ---------- */
