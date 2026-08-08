@@ -135,6 +135,33 @@
   .k-fertig{border-left-color:var(--gruen)}
   .k-abgeholt{border-left-color:#B9B9B9;opacity:.72}
 
+  /* ---------- Tabellenansicht ---------- */
+  .liste.tabellenmodus{display:block;max-width:1400px}
+  .tabellenrahmen{background:var(--blech);border:1px solid var(--kante);border-radius:var(--radius);overflow-x:auto}
+  table.auftraege{border-collapse:collapse;width:100%;font-size:13.5px}
+  table.auftraege th{
+    position:sticky;top:0;background:#F1F4F6;text-align:left;white-space:nowrap;
+    font-family:var(--display);font-weight:500;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--stahl);border-bottom:2px solid var(--kante);padding:9px 10px;cursor:pointer;user-select:none;
+  }
+  table.auftraege th:hover{color:var(--oel)}
+  table.auftraege th .pfeil{font-size:10px;margin-left:4px;color:var(--oel)}
+  table.auftraege td{border-bottom:1px solid var(--kante);padding:8px 10px;vertical-align:top}
+  table.auftraege td.zahl{text-align:right;font-family:var(--mono);white-space:nowrap}
+  table.auftraege td.eng{white-space:nowrap}
+  table.auftraege td.lang{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  table.auftraege tbody tr{cursor:pointer}
+  table.auftraege tbody tr:hover{background:#F7FAFB}
+  table.auftraege tbody tr.abgeholt{color:var(--stahl)}
+  .stpunkt{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;
+           border:1px solid rgba(18,23,28,.45);vertical-align:baseline}
+  .ansichtwahl{display:inline-flex;border:1px solid var(--kante);border-radius:var(--radius);overflow:hidden}
+  .ansichtwahl button{background:var(--blech);border:0;padding:6px 12px;font-size:12.5px;color:var(--stahl)}
+  .ansichtwahl button[aria-pressed="true"]{background:var(--tinte);color:#fff}
+  .spaltenliste{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px}
+  .spaltenliste label{display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte);
+                      background:#FBFCFD;border:1px solid var(--kante);border-radius:var(--radius);padding:8px 10px;margin:0}
+
   .leer{
     max-width:520px;margin:60px auto;text-align:center;color:var(--stahl);padding:0 20px;
   }
@@ -279,7 +306,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 11';
+const VERSION = '2026-08-08 / 12';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -697,6 +724,86 @@ async function kalenderPruefen(ausgabe){
   }catch(e){ sagen(false, 'Unerwartet: ' + e.message); }
 }
 
+/* ---------- Ansichten ---------- */
+const SPALTEN = [
+  {id:'nummer',      label:'Nr.',            art:'eng',  wert:a=>a.nummer||'',                       sort:a=>a.nummer||''},
+  {id:'status',      label:'Status',         art:'eng',  roh:a=>'<span class="stpunkt s-'+a.status+'"></span>'+statusLabel(a.status),
+                                                          sort:a=>({angenommen:0,teile:1,arbeit:2,fertig:3,abgeholt:4})[a.status]},
+  {id:'termin',      label:'Annahme',        art:'eng',  wert:a=>a.termin?datum(a.termin)+(a.uhrAnnahme?', '+a.uhrAnnahme:''):'', sort:a=>(a.termin||'9999')+(a.uhrAnnahme||'')},
+  {id:'fertig',      label:'Fertigstellung', art:'eng',  wert:a=>a.fertig?datum(a.fertig)+(a.uhrFertig?', '+a.uhrFertig:''):'',   sort:a=>(a.fertig||'9999')+(a.uhrFertig||'')},
+  {id:'kunde',       label:'Kunde',          art:'eng',  wert:a=>a.kunde?.name||'',                  sort:a=>(a.kunde?.name||'').toLowerCase()},
+  {id:'telefon',     label:'Telefon',        art:'eng',  wert:a=>a.kunde?.telefon||''},
+  {id:'email',       label:'E-Mail',         art:'lang', wert:a=>a.kunde?.email||''},
+  {id:'fahrzeug',    label:'Fahrzeug',       art:'eng',  wert:a=>[a.fahrzeug?.marke,a.fahrzeug?.modell].filter(Boolean).join(' '),
+                                                          sort:a=>[a.fahrzeug?.marke,a.fahrzeug?.modell].filter(Boolean).join(' ').toLowerCase()},
+  {id:'kennzeichen', label:'Kennzeichen',    art:'eng',  wert:a=>a.fahrzeug?.kennzeichen||''},
+  {id:'fin',         label:'FIN',            art:'eng',  wert:a=>a.fahrzeug?.fin||''},
+  {id:'km',          label:'km',             art:'zahl', wert:a=>a.fahrzeug?.km?z(a.fahrzeug.km).toLocaleString('de-DE'):'', sort:a=>z(a.fahrzeug?.km)},
+  {id:'anliegen',    label:'Auftragsumfang', art:'lang', wert:a=>a.anliegen||''},
+  {id:'notiz',       label:'Notiz',          art:'lang', wert:a=>(a.notiz||'').replace(/\n/g,' · ')},
+  {id:'arbeitzeit',  label:'Stunden',        art:'zahl', wert:a=>{const h=(a.arbeit||[]).reduce((x,p)=>x+z(p.std),0); return h?h.toLocaleString('de-DE'):'';}, sort:a=>(a.arbeit||[]).reduce((x,p)=>x+z(p.std),0)},
+  {id:'arbeit',      label:'Arbeit',         art:'zahl', wert:a=>eur(summen(a).arbeit),              sort:a=>summen(a).arbeit},
+  {id:'teile',       label:'Teile',          art:'zahl', wert:a=>eur(summen(a).teile),               sort:a=>summen(a).teile},
+  {id:'gesamt',      label:'Gesamt',         art:'zahl', wert:a=>eur(summen(a).brutto),              sort:a=>summen(a).brutto},
+  {id:'angelegt',    label:'Angelegt',       art:'eng',  wert:a=>datum(a.angelegt),                  sort:a=>a.angelegt||''}
+];
+const SPALTEN_VORGABE = ['nummer','status','termin','fertig','kunde','fahrzeug','kennzeichen','gesamt'];
+let ansicht = 'kacheln';
+let spalten = SPALTEN_VORGABE.slice();
+let sortierung = {feld:'', richtung:1};
+
+function ansichtLaden(){
+  try{
+    const g = JSON.parse(lsGet('werkstatt-ansicht')||'null');
+    if(g){
+      if(g.ansicht) ansicht = g.ansicht;
+      if(Array.isArray(g.spalten) && g.spalten.length) spalten = g.spalten.filter(id=>SPALTEN.some(s=>s.id===id));
+      if(g.sortierung) sortierung = g.sortierung;
+    }
+  }catch(e){}
+  if(!spalten.length) spalten = SPALTEN_VORGABE.slice();
+}
+function ansichtSichern(){ lsSet('werkstatt-ansicht', JSON.stringify({ansicht, spalten, sortierung})); }
+
+function renderTabelle(l){
+  const genutzt = SPALTEN.filter(s=>spalten.includes(s.id));
+  const kopf = genutzt.map(s=>{
+    const aktiv = sortierung.feld === s.id;
+    return '<th data-s="'+s.id+'">'+esc(s.label)
+      + (aktiv ? '<span class="pfeil">'+(sortierung.richtung>0?'▲':'▼')+'</span>' : '') + '</th>';
+  }).join('');
+  const zeilen = l.map(a=>'<tr data-id="'+a.id+'"'+(a.status==='abgeholt'?' class="abgeholt"':'')+'>'
+    + genutzt.map(s=>{
+        const inhalt = s.roh ? s.roh(a) : esc(s.wert(a));
+        return '<td class="'+(s.art||'')+'">'+inhalt+'</td>';
+      }).join('') + '</tr>').join('');
+  return '<div class="tabellenrahmen"><table class="auftraege"><thead><tr>'+kopf+'</tr></thead><tbody>'+zeilen+'</tbody></table></div>';
+}
+
+function spaltenWaehlen(){
+  aktuelleId = null;
+  document.getElementById('blattTitel').textContent = 'Spalten der Listenansicht';
+  document.getElementById('blattInhalt').innerHTML = `
+    <p class="notiz">Auswahl und Sortierung bleiben erhalten, auch nach einem Neustart.</p>
+    <div class="spaltenliste">${SPALTEN.map(s=>
+      `<label><input type="checkbox" data-sp="${s.id}" ${spalten.includes(s.id)?'checked':''}> ${esc(s.label)}</label>`).join('')}</div>
+    <div class="aktionen">
+      <button class="k2 k2-haupt" id="btnSpFertig">Übernehmen</button>
+      <button class="k2" id="btnSpStandard">Standard</button>
+    </div>`;
+  document.getElementById('btnSpFertig').onclick = ()=>{
+    const gewaehlt = [...document.querySelectorAll('[data-sp]')].filter(c=>c.checked).map(c=>c.dataset.sp);
+    spalten = SPALTEN.map(s=>s.id).filter(id=>gewaehlt.includes(id));
+    if(!spalten.length) spalten = SPALTEN_VORGABE.slice();
+    ansichtSichern(); schliessen(); render();
+  };
+  document.getElementById('btnSpStandard').onclick = ()=>{
+    spalten = SPALTEN_VORGABE.slice(); ansichtSichern(); spaltenWaehlen();
+  };
+  document.getElementById('huelle').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
 /* ---------- Liste ---------- */
 function sichtbar(){
   let l = daten.auftraege.slice();
@@ -705,6 +812,17 @@ function sichtbar(){
   if(suchtext){
     const q = suchtext.toLowerCase();
     l = l.filter(a => JSON.stringify(a).toLowerCase().includes(q));
+  }
+  if(ansicht === 'liste' && sortierung.feld){
+    const sp = SPALTEN.find(s=>s.id===sortierung.feld);
+    if(sp){
+      const wert = a => (sp.sort ? sp.sort(a) : (sp.wert ? sp.wert(a) : ''));
+      return l.sort((x,y)=>{
+        const a = wert(x), b = wert(y);
+        const v = (typeof a === 'number' && typeof b === 'number') ? a-b : String(a).localeCompare(String(b),'de');
+        return v * sortierung.richtung;
+      });
+    }
   }
   const rang = {angenommen:0, teile:1, arbeit:2, fertig:3, abgeholt:4};
   return l.sort((x,y)=> (rang[x.status]-rang[y.status])
@@ -720,8 +838,19 @@ function renderLeiste(){
   const el = document.getElementById('leiste');
   el.innerHTML = reiter.map(r =>
     `<button class="reiter" data-f="${r.id}" aria-pressed="${filter===r.id}">${r.label}<span class="n">${zaehlung(r.id)}</span></button>`
-  ).join('') + `<input class="suche" id="suche" type="search" placeholder="Suche: Kennzeichen, Kunde, Modell …" value="${esc(suchtext)}">`;
-  el.querySelectorAll('.reiter').forEach(b => b.onclick = ()=>{ filter = b.dataset.f; render(); });
+  ).join('')
+  + `<input class="suche" id="suche" type="search" placeholder="Suche: Kennzeichen, Kunde, Modell …" value="${esc(suchtext)}">`
+  + `<span class="ansichtwahl">
+       <button data-a="kacheln" aria-pressed="${ansicht==='kacheln'}" title="Kachelansicht">Kacheln</button>
+       <button data-a="liste" aria-pressed="${ansicht==='liste'}" title="Listenansicht">Liste</button>
+     </span>`
+  + (ansicht==='liste' ? `<button class="reiter" id="btnSpalten">Spalten …</button>` : '');
+  el.querySelectorAll('.reiter[data-f]').forEach(b => b.onclick = ()=>{ filter = b.dataset.f; render(); });
+  el.querySelectorAll('.ansichtwahl button').forEach(b => b.onclick = ()=>{
+    ansicht = b.dataset.a; ansichtSichern(); render();
+  });
+  const bs = document.getElementById('btnSpalten');
+  if(bs) bs.onclick = spaltenWaehlen;
   const s = document.getElementById('suche');
   s.oninput = ()=>{ suchtext = s.value; renderListe(); };
 }
@@ -733,10 +862,23 @@ function renderListe(){
     daten.auftraege.filter(a=>a.status!=='abgeholt').length + ' offen';
 
   if(!l.length){
+    el.classList.remove('tabellenmodus');
     el.innerHTML = `<div class="leer">
       <h2>${daten.auftraege.length ? 'Nichts in dieser Ansicht' : 'Noch kein Auftrag angelegt'}</h2>
       <p>${daten.auftraege.length ? 'Anderen Reiter wählen oder Suche leeren.' : 'Leg den ersten Auftrag an: Kunde, Fahrzeug, Anliegen – Positionen kommen später dazu.'}</p>
       <button class="k2 k2-haupt" onclick="editor(null)">Auftrag anlegen</button></div>`;
+    return;
+  }
+  el.classList.toggle('tabellenmodus', ansicht === 'liste');
+  if(ansicht === 'liste'){
+    el.innerHTML = renderTabelle(l);
+    el.querySelectorAll('table.auftraege th').forEach(th => th.onclick = ()=>{
+      const feld = th.dataset.s;
+      if(sortierung.feld === feld) sortierung.richtung = -sortierung.richtung;
+      else sortierung = {feld, richtung:1};
+      ansichtSichern(); renderListe();
+    });
+    el.querySelectorAll('table.auftraege tbody tr').forEach(tr => tr.onclick = ()=> editor(tr.dataset.id));
     return;
   }
   el.innerHTML = l.map(a=>{
@@ -1224,7 +1366,7 @@ setInterval(()=>{
   if(kalBis && Date.now() > kalBis - 10*60*1000) kalAnmelden(false).catch(()=>{});
 }, 4*60*1000);
 
-(async ()=>{ kalLaden(); kalTokenAusSpeicher(); await laden(); render(); speicherStand(); })();
+(async ()=>{ kalLaden(); kalTokenAusSpeicher(); ansichtLaden(); await laden(); render(); speicherStand(); })();
 </script>
 </body>
 </html>
