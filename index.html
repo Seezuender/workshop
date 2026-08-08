@@ -172,7 +172,7 @@ const VORGABE = {stundensatz:65, kleinunternehmer:true, mwst:19, betrieb:''};
 const SCOPE = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events';
 const ZEITZONE = 'Europe/Berlin';
 
-let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json', kalender:true};
+let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json', kalender:true, konto:''};
 let daten = {version:1, settings:Object.assign({},VORGABE), auftraege:[]};
 let dateiId = null, standDrive = null, token = null, tokenBis = 0, tokenClient = null;
 let filter = 'offen', suchtext = '', entwurf = null, aktuelleId = null, syncLaeuft = false;
@@ -239,7 +239,9 @@ function anmelden(interaktiv){
                                     : fehl(new Error('Anmeldung abgebrochen')),
       error_callback: e => fehl(new Error(e && e.type === 'popup_closed' ? 'Anmeldefenster geschlossen' : 'Anmeldung fehlgeschlagen'))
     });
-    tokenClient.requestAccessToken({prompt: interaktiv ? 'consent' : ''});
+    const wunsch = {prompt: interaktiv ? 'consent' : ''};
+    if(cfg.konto) wunsch.hint = cfg.konto;
+    tokenClient.requestAccessToken(wunsch);
   });
 }
 async function api(url, opt){
@@ -265,6 +267,14 @@ async function standLesen(){
   const r = await api('https://www.googleapis.com/drive/v3/files/'+dateiId+'?fields=modifiedTime');
   return (await r.json()).modifiedTime;
 }
+async function kontoErmitteln(){
+  if(cfg.konto) return;
+  try{
+    const r = await api('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)');
+    const u = (await r.json()).user;
+    if(u && u.emailAddress){ cfg.konto = u.emailAddress; lsSet('werkstatt-cfg', JSON.stringify(cfg)); }
+  }catch(e){}
+}
 async function holen(still){
   if(syncLaeuft) return;
   syncLaeuft = true;
@@ -277,6 +287,7 @@ async function holen(still){
     daten.settings = Object.assign({}, VORGABE, g.settings||{});
     daten.auftraege = Array.isArray(g.auftraege) ? g.auftraege : [];
     standDrive = await standLesen();
+    await kontoErmitteln();
     lsSet('werkstatt-cache', JSON.stringify(daten));
     render();
     zustand('an','Stand ' + new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}));
@@ -575,6 +586,9 @@ function setup(){
     <input class="feld" id="cId" placeholder="…apps.googleusercontent.com" value="${esc(cfg.clientId)}">
     <label for="cDatei">Dateiname in Drive</label>
     <input class="feld" id="cDatei" value="${esc(cfg.dateiName)}">
+    <label for="cKonto">Google-Konto</label>
+    <input class="feld" id="cKonto" type="email" placeholder="wird beim ersten Anmelden übernommen" value="${esc(cfg.konto)}">
+    <p class="notiz">Steht hier eine Adresse, meldet sich die App direkt damit an – die Kontoauswahl entfällt. Zum Kontowechsel Feld leeren.</p>
     <label style="display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte);margin:4px 0 12px">
       <input type="checkbox" id="cKal" ${cfg.kalender?'checked':''}> Termine im Google Kalender führen
     </label>
@@ -594,19 +608,22 @@ function setup(){
   document.getElementById('btnVerbinden').onclick = async ()=>{
     cfg.clientId = document.getElementById('cId').value.trim();
     cfg.dateiName = document.getElementById('cDatei').value.trim() || 'werkstattauftraege-daten.json';
+    cfg.konto = document.getElementById('cKonto').value.trim();
     lsSet('werkstatt-cfg', JSON.stringify(cfg));
-    dateiId = null; token = null;
+    dateiId = null; tokenVerwerfen();
     try{ await anmelden(true); await holen(); zurueck(); melden('Verbunden'); }
     catch(e){ melden(e.message, true); }
   };
   document.getElementById('btnNeuLaden').onclick = async ()=>{ dateiId = null; await holen(); zurueck(); };
   document.getElementById('btnAbmelden').onclick = ()=>{
     tokenVerwerfen(); dateiId = null;
-    zustand('aus','Abgemeldet'); melden('Abgemeldet – das Zugangstoken wurde vom Gerät entfernt.'); setup();
+    zustand('aus','Abgemeldet');
+    melden('Abgemeldet – Token entfernt, Konto bleibt für die nächste Anmeldung hinterlegt.'); setup();
   };
   document.getElementById('btnFertig').onclick = ()=>{
     cfg.clientId = document.getElementById('cId').value.trim();
     cfg.dateiName = document.getElementById('cDatei').value.trim() || cfg.dateiName;
+    cfg.konto = document.getElementById('cKonto').value.trim();
     lsSet('werkstatt-cfg', JSON.stringify(cfg)); zurueck();
   };
   document.getElementById('blatt').hidden = false;
