@@ -251,8 +251,20 @@ async function api(url, opt){
     headers: Object.assign({Authorization:'Bearer '+token}, opt.headers||{})
   }));
   let r = await ruf();
-  if(r.status === 401){ tokenVerwerfen(); await anmelden(false); r = await ruf(); }
-  if(!r.ok) throw new Error('Drive meldet ' + r.status);
+  if(r.status === 401){
+    tokenVerwerfen();
+    try{ await anmelden(false); }
+    catch(e){ throw new Error('Anmeldung abgelaufen – bitte unter Konto neu verbinden'); }
+    r = await ruf();
+  }
+  if(!r.ok){
+    let grund = '';
+    try{
+      const j = await r.clone().json();
+      grund = (j.error && (j.error.message || j.error.status)) || '';
+    }catch(e){ try{ grund = (await r.clone().text()).slice(0,200); }catch(e2){} }
+    throw new Error('Google meldet ' + r.status + (grund ? ': ' + grund : ''));
+  }
   return r;
 }
 async function dateiSuchen(){
@@ -676,6 +688,11 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && datei
   const warte = setInterval(()=>{ if(gisBereit()){ clearInterval(warte); holen(true); } }, 300);
   setTimeout(()=>clearInterval(warte), 15000);
 })();
+setInterval(()=>{
+  if(document.hidden || !cfg.clientId || !gisBereit()) return;
+  if(tokenBis && Date.now() > tokenBis - 10*60*1000) anmelden(false).catch(()=>{});
+}, 4*60*1000);
+
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
