@@ -174,7 +174,7 @@ const ZEITZONE = 'Europe/Berlin';
 
 let cfg = {clientId:'', dateiName:'werkstattauftraege-daten.json', kalender:true};
 let daten = {version:1, settings:Object.assign({},VORGABE), auftraege:[]};
-let dateiId = null, standDrive = null, token = null, tokenClient = null;
+let dateiId = null, standDrive = null, token = null, tokenBis = 0, tokenClient = null;
 let filter = 'offen', suchtext = '', entwurf = null, aktuelleId = null, syncLaeuft = false;
 
 /* ---------- Werkzeug ---------- */
@@ -211,13 +211,32 @@ function zustand(art, text){
 
 /* ---------- Anmeldung & Drive ---------- */
 function gisBereit(){ return typeof google !== 'undefined' && google.accounts && google.accounts.oauth2; }
+function tokenGueltig(){ return !!token && Date.now() < tokenBis; }
+function tokenMerken(t, sekunden){
+  token = t;
+  tokenBis = Date.now() + (Math.max(60, sekunden||3600) - 90) * 1000;
+  lsSet('werkstatt-token', JSON.stringify({t: token, bis: tokenBis}));
+}
+function tokenHolenAusSpeicher(){
+  try{
+    const g = JSON.parse(lsGet('werkstatt-token') || 'null');
+    if(g && g.t && Date.now() < g.bis){ token = g.t; tokenBis = g.bis; return true; }
+  }catch(e){}
+  return false;
+}
+function tokenVerwerfen(){
+  token = null; tokenBis = 0;
+  try{ localStorage.removeItem('werkstatt-token'); }catch(e){}
+}
 function anmelden(interaktiv){
+  if(!interaktiv && tokenGueltig()) return Promise.resolve(token);
   return new Promise((ok,fehl)=>{
     if(!cfg.clientId) return fehl(new Error('Keine Client-ID hinterlegt'));
     if(!gisBereit()) return fehl(new Error('Google-Anmeldung nicht geladen – Internetverbindung prüfen'));
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: cfg.clientId, scope: SCOPE,
-      callback: r => r.access_token ? (token=r.access_token, ok(token)) : fehl(new Error('Anmeldung abgebrochen')),
+      callback: r => r.access_token ? (tokenMerken(r.access_token, r.expires_in), ok(token))
+                                    : fehl(new Error('Anmeldung abgebrochen')),
       error_callback: e => fehl(new Error(e && e.type === 'popup_closed' ? 'Anmeldefenster geschlossen' : 'Anmeldung fehlgeschlagen'))
     });
     tokenClient.requestAccessToken({prompt: interaktiv ? 'consent' : ''});
@@ -225,12 +244,12 @@ function anmelden(interaktiv){
 }
 async function api(url, opt){
   opt = opt || {};
-  if(!token) await anmelden(false);
+  if(!tokenGueltig()) await anmelden(false);
   const ruf = () => fetch(url, Object.assign({}, opt, {
     headers: Object.assign({Authorization:'Bearer '+token}, opt.headers||{})
   }));
   let r = await ruf();
-  if(r.status === 401){ token = null; await anmelden(false); r = await ruf(); }
+  if(r.status === 401){ tokenVerwerfen(); await anmelden(false); r = await ruf(); }
   if(!r.ok) throw new Error('Drive meldet ' + r.status);
   return r;
 }
@@ -564,7 +583,11 @@ function setup(){
   <fieldset><legend>Status</legend>
     <p class="notiz">${dateiId ? 'Verbunden mit <code>'+esc(cfg.dateiName)+'</code>. Aufträge: '+daten.auftraege.length
       : 'Noch keine Datei verbunden.'}</p>
+    <p class="notiz">${tokenGueltig()
+      ? 'Angemeldet, gültig bis ' + new Date(tokenBis).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) + ' Uhr. Danach meldet sich die App im Hintergrund selbst neu an.'
+      : 'Zurzeit nicht angemeldet.'}</p>
     <button class="k2" id="btnNeuLaden">Vom Drive neu laden</button>
+    <button class="k2" id="btnAbmelden" style="margin-top:8px">Abmelden</button>
   </fieldset>
   <div class="aktionen"><button class="k2 k2-haupt" id="btnFertig">Fertig</button></div>`;
   document.getElementById('cKal').onchange = e =>{ cfg.kalender = e.target.checked; lsSet('werkstatt-cfg', JSON.stringify(cfg)); };
@@ -577,6 +600,10 @@ function setup(){
     catch(e){ melden(e.message, true); }
   };
   document.getElementById('btnNeuLaden').onclick = async ()=>{ dateiId = null; await holen(); zurueck(); };
+  document.getElementById('btnAbmelden').onclick = ()=>{
+    tokenVerwerfen(); dateiId = null;
+    zustand('aus','Abgemeldet'); melden('Abgemeldet – das Zugangstoken wurde vom Gerät entfernt.'); setup();
+  };
   document.getElementById('btnFertig').onclick = ()=>{
     cfg.clientId = document.getElementById('cId').value.trim();
     cfg.dateiName = document.getElementById('cDatei').value.trim() || cfg.dateiName;
@@ -600,6 +627,7 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && datei
   try{ const c = JSON.parse(lsGet('werkstatt-cache')||'null'); if(c && c.auftraege){ daten = c; daten.settings = Object.assign({},VORGABE,c.settings||{}); } }catch(e){}
   render();
   if(!cfg.clientId){ zustand('aus','Einrichtung nötig – auf Konto tippen'); return; }
+  if(tokenHolenAusSpeicher()){ zustand('laeuft','Angemeldet – lade …'); holen(true); return; }
   zustand('','Bereit');
   const warte = setInterval(()=>{ if(gisBereit()){ clearInterval(warte); holen(true); } }, 300);
   setTimeout(()=>clearInterval(warte), 15000);
