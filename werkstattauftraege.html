@@ -158,9 +158,18 @@
   .ansichtwahl{display:inline-flex;border:1px solid var(--kante);border-radius:var(--radius);overflow:hidden}
   .ansichtwahl button{background:var(--blech);border:0;padding:6px 12px;font-size:12.5px;color:var(--stahl)}
   .ansichtwahl button[aria-pressed="true"]{background:var(--tinte);color:#fff}
-  .spaltenliste{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px}
-  .spaltenliste label{display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--tinte);
-                      background:#FBFCFD;border:1px solid var(--kante);border-radius:var(--radius);padding:8px 10px;margin:0}
+  .spaltenliste{display:flex;flex-direction:column;gap:5px;margin-bottom:6px}
+  .spzeile{display:flex;gap:9px;align-items:center;background:#FBFCFD;border:1px solid var(--kante);
+           border-radius:var(--radius);padding:8px 10px;font-size:13.5px;cursor:grab}
+  .spzeile.zieht{opacity:.4}
+  .spzeile.ueber{border-color:var(--oel);box-shadow:inset 0 2px 0 var(--oel)}
+  .spzeile .griff{color:var(--stahl);letter-spacing:-2px;font-size:15px;cursor:grab;user-select:none}
+  .spzeile .name{flex:1}
+  .spzeile.aus .name{color:var(--stahl)}
+  .spzeile .pfeile{display:flex;gap:3px}
+  .spzeile .pfeile button{border:1px solid var(--kante);background:#fff;border-radius:2px;
+                          width:26px;height:24px;line-height:1;color:var(--stahl);font-size:11px;padding:0}
+  .spzeile .pfeile button:hover{border-color:var(--oel);color:var(--oel)}
 
   .leer{
     max-width:520px;margin:60px auto;text-align:center;color:var(--stahl);padding:0 20px;
@@ -306,7 +315,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 12';
+const VERSION = '2026-08-08 / 13';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -750,23 +759,39 @@ const SPALTEN = [
 const SPALTEN_VORGABE = ['nummer','status','termin','fertig','kunde','fahrzeug','kennzeichen','gesamt'];
 let ansicht = 'kacheln';
 let spalten = SPALTEN_VORGABE.slice();
+let spaltenReihenfolge = SPALTEN.map(s=>s.id);
 let sortierung = {feld:'', richtung:1};
 
+function reihenfolgeAufraeumen(){
+  const alle = SPALTEN.map(s=>s.id);
+  spaltenReihenfolge = spaltenReihenfolge.filter(id=>alle.includes(id));
+  alle.forEach(id=>{ if(!spaltenReihenfolge.includes(id)) spaltenReihenfolge.push(id); });
+}
+function sichtbareSpalten(){
+  reihenfolgeAufraeumen();
+  return spaltenReihenfolge.filter(id=>spalten.includes(id)).map(id=>SPALTEN.find(s=>s.id===id));
+}
+
 function ansichtLaden(){
+  reihenfolgeAufraeumen();
   try{
     const g = JSON.parse(lsGet('werkstatt-ansicht')||'null');
     if(g){
       if(g.ansicht) ansicht = g.ansicht;
       if(Array.isArray(g.spalten) && g.spalten.length) spalten = g.spalten.filter(id=>SPALTEN.some(s=>s.id===id));
+      if(Array.isArray(g.reihenfolge) && g.reihenfolge.length) spaltenReihenfolge = g.reihenfolge;
       if(g.sortierung) sortierung = g.sortierung;
     }
   }catch(e){}
   if(!spalten.length) spalten = SPALTEN_VORGABE.slice();
 }
-function ansichtSichern(){ lsSet('werkstatt-ansicht', JSON.stringify({ansicht, spalten, sortierung})); }
+function ansichtSichern(){
+  reihenfolgeAufraeumen();
+  lsSet('werkstatt-ansicht', JSON.stringify({ansicht, spalten, reihenfolge: spaltenReihenfolge, sortierung}));
+}
 
 function renderTabelle(l){
-  const genutzt = SPALTEN.filter(s=>spalten.includes(s.id));
+  const genutzt = sichtbareSpalten();
   const kopf = genutzt.map(s=>{
     const aktiv = sortierung.feld === s.id;
     return '<th data-s="'+s.id+'">'+esc(s.label)
@@ -782,24 +807,83 @@ function renderTabelle(l){
 
 function spaltenWaehlen(){
   aktuelleId = null;
+  reihenfolgeAufraeumen();
+  const wahl = new Set(spalten);
   document.getElementById('blattTitel').textContent = 'Spalten der Listenansicht';
-  document.getElementById('blattInhalt').innerHTML = `
-    <p class="notiz">Auswahl und Sortierung bleiben erhalten, auch nach einem Neustart.</p>
-    <div class="spaltenliste">${SPALTEN.map(s=>
-      `<label><input type="checkbox" data-sp="${s.id}" ${spalten.includes(s.id)?'checked':''}> ${esc(s.label)}</label>`).join('')}</div>
-    <div class="aktionen">
-      <button class="k2 k2-haupt" id="btnSpFertig">Übernehmen</button>
-      <button class="k2" id="btnSpStandard">Standard</button>
-    </div>`;
-  document.getElementById('btnSpFertig').onclick = ()=>{
-    const gewaehlt = [...document.querySelectorAll('[data-sp]')].filter(c=>c.checked).map(c=>c.dataset.sp);
-    spalten = SPALTEN.map(s=>s.id).filter(id=>gewaehlt.includes(id));
-    if(!spalten.length) spalten = SPALTEN_VORGABE.slice();
-    ansichtSichern(); schliessen(); render();
-  };
-  document.getElementById('btnSpStandard').onclick = ()=>{
-    spalten = SPALTEN_VORGABE.slice(); ansichtSichern(); spaltenWaehlen();
-  };
+
+  function zeichnen(){
+    document.getElementById('blattInhalt').innerHTML = `
+      <p class="notiz">Reihenfolge per Ziehen am Griff ändern oder mit den Pfeilen verschieben.
+        Das Häkchen bestimmt, ob die Spalte angezeigt wird. Beides bleibt nach einem Neustart erhalten.</p>
+      <div class="spaltenliste" id="spListe">${spaltenReihenfolge.map(id=>{
+        const sp = SPALTEN.find(x=>x.id===id);
+        return `<div class="spzeile ${wahl.has(id)?'':'aus'}" draggable="true" data-sp="${id}">
+          <span class="griff" title="Ziehen zum Verschieben">⋮⋮</span>
+          <input type="checkbox" data-an="${id}" ${wahl.has(id)?'checked':''} aria-label="${esc(sp.label)} anzeigen">
+          <span class="name">${esc(sp.label)}</span>
+          <span class="pfeile">
+            <button data-hoch="${id}" title="nach oben" aria-label="nach oben">▲</button>
+            <button data-runter="${id}" title="nach unten" aria-label="nach unten">▼</button>
+          </span></div>`;
+      }).join('')}</div>
+      <div class="aktionen">
+        <button class="k2 k2-haupt" id="btnSpFertig">Übernehmen</button>
+        <button class="k2" id="btnSpStandard">Standard</button>
+      </div>`;
+    verdrahten();
+  }
+
+  function verschiebe(was, ziel){
+    if(!was || was === ziel) return;
+    const von = spaltenReihenfolge.indexOf(was);
+    if(von < 0) return;
+    spaltenReihenfolge.splice(von, 1);
+    const nach = spaltenReihenfolge.indexOf(ziel);
+    spaltenReihenfolge.splice(nach < 0 ? spaltenReihenfolge.length : nach, 0, was);
+  }
+  function schieben(id, richtung){
+    const i = spaltenReihenfolge.indexOf(id), j = i + richtung;
+    if(i < 0 || j < 0 || j >= spaltenReihenfolge.length) return;
+    [spaltenReihenfolge[i], spaltenReihenfolge[j]] = [spaltenReihenfolge[j], spaltenReihenfolge[i]];
+  }
+
+  function verdrahten(){
+    let zieht = null;
+    const liste = document.getElementById('spListe');
+    liste.querySelectorAll('.spzeile').forEach(z=>{
+      z.addEventListener('dragstart', e=>{
+        zieht = z.dataset.sp; z.classList.add('zieht');
+        e.dataTransfer.effectAllowed = 'move';
+        try{ e.dataTransfer.setData('text/plain', zieht); }catch(err){}
+      });
+      z.addEventListener('dragend', ()=>{ z.classList.remove('zieht'); zieht = null; });
+      z.addEventListener('dragover', e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; z.classList.add('ueber'); });
+      z.addEventListener('dragleave', ()=> z.classList.remove('ueber'));
+      z.addEventListener('drop', e=>{
+        e.preventDefault(); z.classList.remove('ueber');
+        const was = zieht || (()=>{ try{ return e.dataTransfer.getData('text/plain'); }catch(err){ return null; } })();
+        verschiebe(was, z.dataset.sp); zeichnen();
+      });
+    });
+    liste.querySelectorAll('[data-an]').forEach(c => c.onchange = ()=>{
+      c.checked ? wahl.add(c.dataset.an) : wahl.delete(c.dataset.an);
+      c.closest('.spzeile').classList.toggle('aus', !c.checked);
+    });
+    liste.querySelectorAll('[data-hoch]').forEach(b => b.onclick = ()=>{ schieben(b.dataset.hoch, -1); zeichnen(); });
+    liste.querySelectorAll('[data-runter]').forEach(b => b.onclick = ()=>{ schieben(b.dataset.runter, 1); zeichnen(); });
+    document.getElementById('btnSpFertig').onclick = ()=>{
+      spalten = spaltenReihenfolge.filter(id=>wahl.has(id));
+      if(!spalten.length) spalten = SPALTEN_VORGABE.slice();
+      ansichtSichern(); schliessen(); render();
+    };
+    document.getElementById('btnSpStandard').onclick = ()=>{
+      spaltenReihenfolge = SPALTEN.map(x=>x.id);
+      wahl.clear(); SPALTEN_VORGABE.forEach(id=>wahl.add(id));
+      zeichnen();
+    };
+  }
+
+  zeichnen();
   document.getElementById('huelle').hidden = false;
   document.body.style.overflow = 'hidden';
 }
