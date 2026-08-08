@@ -528,7 +528,8 @@ function scheinPruefen(g){
     const fin = wert('fin');        if(fin) entwurf.fahrzeug.fin = fin.toUpperCase();
     const ma = wert('marke');       if(ma) entwurf.fahrzeug.marke = ma;
     const mo = wert('modell');      if(mo) entwurf.fahrzeug.modell = mo;
-    const ku = wert('kunde');       if(ku) entwurf.kunde.name = ku;
+    const ku = wert('kunde');
+    if(ku){ const t = kundeTeile({name:ku}); entwurf.kunde.vorname = t.vorname; entwurf.kunde.nachname = t.nachname; entwurf.kunde.name = ku; }
     const ez = wert('erstzul');
     if(ez && !(entwurf.notiz||'').includes(ez)) entwurf.notiz = ((entwurf.notiz||'') + '\nErstzulassung ' + ez).trim();
     scheinSchliessen();
@@ -732,10 +733,23 @@ function renderListe(){
 function render(){ renderReiter(); renderListe(); }
 
 /* ---------- Editor ---------- */
+function kundeTeile(k){
+  k = k || {};
+  if(k.vorname || k.nachname) return {vorname: k.vorname||'', nachname: k.nachname||''};
+  // Altbestand: Gesamtname aufteilen, letztes Wort gilt als Nachname
+  const teile = String(k.name||'').trim().split(/\s+/).filter(Boolean);
+  if(!teile.length) return {vorname:'', nachname:''};
+  if(teile.length === 1) return {vorname:'', nachname: teile[0]};
+  return {vorname: teile.slice(0,-1).join(' '), nachname: teile[teile.length-1]};
+}
+function kundeName(k){
+  const t = kundeTeile(k);
+  return [t.vorname, t.nachname].filter(Boolean).join(' ') || (k && k.name) || '';
+}
 function leerAuftrag(){
   return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
     angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
-    kunde:{name:'',telefon:'',email:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
+    kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
 function posZeile(art,p,i){
@@ -778,10 +792,18 @@ function zeichne(){
     <p class="notiz">${cfg.kalender ? 'Beide Termine landen im Google Kalender. Erinnerung am Vortag um 14:00 Uhr und – sofern eine Uhrzeit gesetzt ist – zusätzlich eine Stunde vorher. Ohne Uhrzeit als ganztägiger Eintrag.' : 'Kalendereintrag ist unter Konto abgeschaltet.'}</p>
   </fieldset>
   <fieldset><legend>Kunde</legend>
-    <input class="feld" id="kName" placeholder="Name" value="${esc(a.kunde.name||'')}">
+    <div class="zeile">
+      <input class="feld" id="kVor" placeholder="Vorname" value="${esc(kundeTeile(a.kunde).vorname)}">
+      <input class="feld" id="kNach" placeholder="Nachname" value="${esc(kundeTeile(a.kunde).nachname)}">
+    </div>
     <div class="zeile">
       <input class="feld" id="kTel" type="tel" placeholder="Telefon" value="${esc(a.kunde.telefon||'')}">
       <input class="feld" id="kMail" type="email" placeholder="E-Mail" value="${esc(a.kunde.email||'')}">
+    </div>
+    <input class="feld" id="kStr" placeholder="Straße und Hausnummer" value="${esc(a.kunde.strasse||'')}">
+    <div class="zeile">
+      <input class="feld" id="kPlz" inputmode="numeric" placeholder="PLZ" value="${esc(a.kunde.plz||'')}">
+      <input class="feld" id="kOrt" placeholder="Ort" value="${esc(a.kunde.ort||'')}">
     </div>
   </fieldset>
   <fieldset><legend>Fahrzeug</legend>
@@ -908,7 +930,9 @@ function uebernehmen(){
   entwurf.uhrAnnahme = entwurf.termin ? v('fUhrAnnahme') : '';
   entwurf.fertig = v('fFertig');
   entwurf.uhrFertig = entwurf.fertig ? v('fUhrFertig') : '';
-  entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
+  const kv = v('kVor').trim(), kn = v('kNach').trim();
+  entwurf.kunde = {vorname:kv, nachname:kn, name:[kv,kn].filter(Boolean).join(' '),
+                   telefon:v('kTel'), email:v('kMail'), strasse:v('kStr'), plz:v('kPlz'), ort:v('kOrt')};
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
                       fin:v('fFin').toUpperCase(), km:v('fKm')};
   entwurf.anliegen = v('fAnliegen'); entwurf.notiz = v('fNotiz');
@@ -936,7 +960,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-08 / 19';
+const APPVERSION = '2026-08-08 / 21';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;

@@ -345,7 +345,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 23';
+const VERSION = '2026-08-08 / 25';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -688,6 +688,105 @@ async function bildIdDrive(b){
   return b.id;
 }
 
+/* ---------- Übergabe an Lexware Office ---------- */
+let lexOrdnerId = null;
+
+async function lexOrdner(){
+  if(lexOrdnerId) return lexOrdnerId;
+  const gemerkt = daten.settings && daten.settings.lexOrdner;
+  if(gemerkt){ lexOrdnerId = gemerkt; return lexOrdnerId; }
+  // Neben dem Bilder-Ordner anlegen bzw. suchen
+  const bilder = await bilderOrdnerDrive();
+  const meta = await (await driveApi('https://www.googleapis.com/drive/v3/files/'+bilder+'?fields=parents')).json();
+  const eltern = (meta.parents && meta.parents[0]) || 'root';
+  const q = encodeURIComponent("'"+eltern+"' in parents and name = 'Lexware' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+  const j = await (await driveApi('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id)')).json();
+  if(j.files && j.files.length) lexOrdnerId = j.files[0].id;
+  else{
+    const r = await driveApi('https://www.googleapis.com/drive/v3/files', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name:'Lexware', mimeType:'application/vnd.google-apps.folder', parents:[eltern]})});
+    lexOrdnerId = (await r.json()).id;
+  }
+  if(daten.settings) daten.settings.lexOrdner = lexOrdnerId;
+  return lexOrdnerId;
+}
+
+function lexPositionen(a){
+  const satz = (daten.settings && daten.settings.stundensatz) || 0;
+  const ust = (daten.settings && daten.settings.kleinunternehmer) ? 0 : 19;
+  const pos = [];
+  (a.arbeit||[]).forEach(x=>{
+    const std = Number(x.std)||0, preis = Number(x.satz)||satz;
+    if(!std && !preis) return;
+    pos.push({art:'arbeit', bez: x.bez || 'Arbeitszeit', menge: std, einheit:'Stunde', einzelNetto: preis, ustSatz: ust});
+  });
+  (a.teile||[]).forEach(x=>{
+    const menge = Number(x.menge)||0, preis = Number(x.einzel)||0;
+    if(!menge && !preis) return;
+    pos.push({art:'teil', bez: x.bez || 'Teil', menge: menge, einheit:'Stück', einzelNetto: preis, ustSatz: ust});
+  });
+  return pos;
+}
+
+function lexDaten(a){
+  const fz = [a.fahrzeug && a.fahrzeug.marke, a.fahrzeug && a.fahrzeug.modell].filter(Boolean).join(' ');
+  const kennz = (a.fahrzeug && a.fahrzeug.kennzeichen) || '';
+  return {
+    auftragId: a.id,
+    auftragNummer: a.nummer || '',
+    erzeugt: new Date().toISOString(),
+    kunde: {
+      name: kundeName(a.kunde),
+      vorname: kundeTeile(a.kunde).vorname,
+      nachname: kundeTeile(a.kunde).nachname,
+      telefon: (a.kunde && a.kunde.telefon) || '',
+      email: (a.kunde && a.kunde.email) || '',
+      strasse: (a.kunde && a.kunde.strasse) || '',
+      plz: (a.kunde && a.kunde.plz) || '',
+      ort: (a.kunde && a.kunde.ort) || ''
+    },
+    fahrzeug: {bezeichnung: fz, kennzeichen: kennz, fin: (a.fahrzeug && a.fahrzeug.fin) || '', km: (a.fahrzeug && a.fahrzeug.km) || ''},
+    einleitung: 'Auftrag ' + (a.nummer||'') + (fz ? ' – ' + fz : '') + (kennz ? ' (' + kennz + ')' : ''),
+    anliegen: a.anliegen || '',
+    positionen: lexPositionen(a),
+    steuer: (daten.settings && daten.settings.kleinunternehmer) ? 'kleinunternehmer' : 'regel'
+  };
+}
+
+function lexPruefen(d){
+  const fehlt = [];
+  if(!d.kunde.nachname) fehlt.push('Nachname');
+  if(!d.kunde.strasse) fehlt.push('Straße');
+  if(!d.kunde.plz) fehlt.push('PLZ');
+  if(!d.kunde.ort) fehlt.push('Ort');
+  if(!d.positionen.length) fehlt.push('mindestens eine Position');
+  return fehlt;
+}
+
+async function lexUebergeben(){
+  uebernehmen();
+  const d = lexDaten(entwurf);
+  const fehlt = lexPruefen(d);
+  if(fehlt.length){ melden('Für die Rechnung fehlt noch: ' + fehlt.join(', '), true); return; }
+  if(entwurf.lexware && entwurf.lexware.stand === 'uebergeben'
+     && !confirm('Dieser Auftrag wurde am ' + datum((entwurf.lexware.zeit||'').slice(0,10)) + ' schon übergeben. Nochmals übergeben?')) return;
+  try{
+    const ordner = await lexOrdner();
+    const name = 'auftrag_' + (d.auftragNummer || d.auftragId) + '_' + new Date().toISOString().slice(0,19).replace(/[-:T]/g,'') + '.json';
+    const r = await driveApi('https://www.googleapis.com/drive/v3/files', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, parents:[ordner]})});
+    const id = (await r.json()).id;
+    await driveApi('https://www.googleapis.com/upload/drive/v3/files/'+id+'?uploadType=media',
+      {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(d, null, 2)});
+    entwurf.lexware = {stand:'uebergeben', datei:name, zeit:new Date().toISOString()};
+    zeichneEditor();
+    melden('An Lexware übergeben: ' + name + ' – jetzt am PC das Übergabe-Programm starten.');
+  }catch(e){
+    melden('Übergabe fehlgeschlagen: ' + e.message, true);
+  }
+}
+
 function plusTag(iso){ const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); }
 function erinnerungMinuten(start){
   const e = new Date(start); e.setDate(e.getDate()-1); e.setHours(14,0,0,0);
@@ -966,7 +1065,8 @@ function scheinPruefen(g){
     const fin = wert('fin');        if(fin) entwurf.fahrzeug.fin = fin.toUpperCase();
     const ma = wert('marke');       if(ma) entwurf.fahrzeug.marke = ma;
     const mo = wert('modell');      if(mo) entwurf.fahrzeug.modell = mo;
-    const ku = wert('kunde');       if(ku) entwurf.kunde.name = ku;
+    const ku = wert('kunde');
+    if(ku){ const t = kundeTeile({name:ku}); entwurf.kunde.vorname = t.vorname; entwurf.kunde.nachname = t.nachname; entwurf.kunde.name = ku; }
     const ez = wert('erstzul');
     if(ez && !(entwurf.notiz||'').includes(ez)) entwurf.notiz = ((entwurf.notiz||'') + '\nErstzulassung ' + ez).trim();
     scheinSchliessen();
@@ -1331,13 +1431,26 @@ function renderListe(){
 function render(){ renderLeiste(); renderListe(); }
 
 /* ---------- Editor ---------- */
+function kundeTeile(k){
+  k = k || {};
+  if(k.vorname || k.nachname) return {vorname: k.vorname||'', nachname: k.nachname||''};
+  // Altbestand: Gesamtname aufteilen, letztes Wort gilt als Nachname
+  const teile = String(k.name||'').trim().split(/\s+/).filter(Boolean);
+  if(!teile.length) return {vorname:'', nachname:''};
+  if(teile.length === 1) return {vorname:'', nachname: teile[0]};
+  return {vorname: teile.slice(0,-1).join(' '), nachname: teile[teile.length-1]};
+}
+function kundeName(k){
+  const t = kundeTeile(k);
+  return [t.vorname, t.nachname].filter(Boolean).join(' ') || (k && k.name) || '';
+}
 function leerAuftrag(){
   return {
     id: 'a'+Date.now()+Math.random().toString(36).slice(2,6),
     nummer: neueNummer(), status:'angenommen',
     angelegt: new Date().toISOString().slice(0,10),
     termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
-    kunde:{name:'',telefon:'',email:''},
+    kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''},
     fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
     anliegen:'', notiz:'',
     arbeit:[{bez:'',std:'',satz:daten.settings.stundensatz}],
@@ -1398,10 +1511,18 @@ function zeichneEditor(){
   </fieldset>
 
   <fieldset><legend>Kunde</legend>
-    <label for="kName">Name</label><input class="feld" id="kName" value="${esc(a.kunde.name)}">
+    <div class="zeile">
+      <div><label for="kVor">Vorname</label><input class="feld" id="kVor" value="${esc(kundeTeile(a.kunde).vorname)}"></div>
+      <div><label for="kNach">Nachname</label><input class="feld" id="kNach" value="${esc(kundeTeile(a.kunde).nachname)}"></div>
+    </div>
     <div class="zeile">
       <div><label for="kTel">Telefon</label><input class="feld" id="kTel" type="tel" value="${esc(a.kunde.telefon)}"></div>
       <div><label for="kMail">E-Mail</label><input class="feld" id="kMail" type="email" value="${esc(a.kunde.email)}"></div>
+    </div>
+    <label for="kStr">Straße und Hausnummer</label><input class="feld" id="kStr" value="${esc(a.kunde.strasse||'')}">
+    <div class="zeile">
+      <div><label for="kPlz">PLZ</label><input class="feld" id="kPlz" value="${esc(a.kunde.plz||'')}"></div>
+      <div><label for="kOrt">Ort</label><input class="feld" id="kOrt" value="${esc(a.kunde.ort||'')}"></div>
     </div>
   </fieldset>
 
@@ -1459,6 +1580,7 @@ function zeichneEditor(){
   <div class="aktionen">
     <button class="k2 k2-haupt" id="btnSpeichern">Auftrag speichern</button>
     <button class="k2" id="btnDrucken">Auftragszettel drucken</button>
+    <button class="k2" id="btnLexware">An Lexware übergeben${a.lexware && a.lexware.stand === 'uebergeben' ? ' ✓' : ''}</button>
     ${aktuelleId ? '<button class="k2 k2-loeschen" id="btnLoeschen">Löschen</button>' : ''}
   </div>`;
 
@@ -1504,6 +1626,8 @@ function zeichneEditor(){
   document.getElementById('btnSchein').onclick = ()=> scheinBildWaehlen();
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   document.getElementById('btnDrucken').onclick = ()=>{ uebernehmen(); drucken(entwurf); };
+  const bl = document.getElementById('btnLexware');
+  if(bl) bl.onclick = lexUebergeben;
   const del = document.getElementById('btnLoeschen');
   if(del) del.onclick = async ()=>{
     const imKalender = entwurf.kalender && Object.keys(entwurf.kalender).length;
@@ -1562,7 +1686,9 @@ function uebernehmen(){
   entwurf.uhrAnnahme = entwurf.termin ? v('fUhrAnnahme') : '';
   entwurf.fertig = v('fFertig');
   entwurf.uhrFertig = entwurf.fertig ? v('fUhrFertig') : '';
-  entwurf.kunde = {name:v('kName'), telefon:v('kTel'), email:v('kMail')};
+  const kv = v('kVor').trim(), kn = v('kNach').trim();
+  entwurf.kunde = {vorname:kv, nachname:kn, name:[kv,kn].filter(Boolean).join(' '),
+                   telefon:v('kTel'), email:v('kMail'), strasse:v('kStr'), plz:v('kPlz'), ort:v('kOrt')};
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(), fin:v('fFin').toUpperCase(), km:v('fKm')};
   entwurf.anliegen = v('fAnliegen');
   entwurf.notiz = v('fNotiz');
