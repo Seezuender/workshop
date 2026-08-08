@@ -178,12 +178,27 @@
   .bildkachel .lade{font-size:10.5px;color:var(--stahl);text-align:center;padding:4px}
   .bildkachel .weg{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
                    border:0;background:rgba(18,23,28,.72);color:#fff;font-size:12px;line-height:1;padding:0}
-  .bildvoll{position:fixed;inset:0;z-index:70;background:rgba(10,13,16,.94);display:flex;
-            align-items:center;justify-content:center;padding:20px}
-  .bildvoll[hidden]{display:none}
-  .bildvoll img{max-width:100%;max-height:90vh;object-fit:contain}
-  .bildvoll button{position:absolute;top:16px;right:20px;background:rgba(255,255,255,.15);color:#fff;
-                   border:1px solid rgba(255,255,255,.4);border-radius:var(--radius);padding:8px 14px}
+  /* Bild neben dem Auftrag – zum Abtippen des Fahrzeugscheins */
+  .bildseite{
+    position:sticky;top:0;align-self:flex-start;height:100vh;flex:0 0 auto;
+    width:min(46vw,780px);background:#0D1116;display:flex;flex-direction:column;z-index:1;
+    border-right:1px solid rgba(255,255,255,.18);
+  }
+  .bildseite[hidden]{display:none}
+  .bildseite-kopf{
+    display:flex;gap:8px;align-items:center;padding:9px 12px;background:#161C22;
+    color:#fff;font-size:12px;flex:none;
+  }
+  .bildseite-kopf .wer{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+  .bildseite-kopf button{
+    background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.32);
+    border-radius:var(--radius);padding:5px 10px;font-size:12px;cursor:pointer;
+  }
+  .bildseite-kopf button:hover{background:rgba(255,255,255,.26)}
+  .bildseite-flaeche{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:10px}
+  .bildseite-flaeche img{transform-origin:center center;max-width:100%;max-height:100%;object-fit:contain}
+  .bildseite-flaeche.frei{align-items:flex-start;justify-content:flex-start}
+  .bildseite-flaeche.frei img{max-width:none;max-height:none}
 
 
   .scheinbox{position:fixed;inset:0;z-index:75;background:rgba(10,13,16,.6);display:flex;
@@ -212,7 +227,7 @@
   }
   .huelle[hidden]{display:none}
   .blatt{
-    background:var(--blech);width:100%;max-width:760px;min-height:100%;
+    background:var(--blech);width:100%;max-width:760px;min-height:100%;flex:1 1 auto;
     border-left:1px solid var(--kante);border-right:1px solid var(--kante);
   }
   .blatt-kopf{
@@ -328,6 +343,17 @@
 <main class="liste" id="liste"></main>
 
 <div class="huelle" id="huelle" hidden>
+  <div class="bildseite" id="bildseite" hidden>
+    <div class="bildseite-kopf">
+      <span class="wer" id="bildseiteName">Bild</span>
+      <button id="bildKleiner" title="Verkleinern">−</button>
+      <button id="bildGroesser" title="Vergrößern">+</button>
+      <button id="bildPassend" title="Einpassen">Einpassen</button>
+      <button id="bildDrehen" title="90 Grad drehen">Drehen</button>
+      <button id="bildseiteZu">Schließen</button>
+    </div>
+    <div class="bildseite-flaeche" id="bildseiteFlaeche"><img id="bildseiteImg" alt="Auftragsbild"></div>
+  </div>
   <div class="blatt" role="dialog" aria-modal="true" aria-label="Auftrag bearbeiten">
     <div class="blatt-kopf">
       <span class="titel" id="blattTitel">Auftrag</span>
@@ -337,7 +363,6 @@
   </div>
 </div>
 
-<div class="bildvoll" id="bildvoll" hidden><img id="bildvollImg" alt="Auftragsbild"><button id="bildvollZu">Schließen</button></div>
 <div class="scheinbox" id="scheinbox" hidden><div class="scheinblatt" id="scheinblatt"></div></div>
 <div id="druck"></div>
 <div class="status-meldung" id="meldung" hidden></div>
@@ -345,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 25';
+const VERSION = '2026-08-08 / 26';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1171,10 +1196,25 @@ async function bildVerwerfen(b){
   bildCache.delete(b.name);
   if(b.id) bildCache.delete(b.id);
 }
-function bildAnzeigen(url){
-  document.getElementById('bildvollImg').src = url;
-  document.getElementById('bildvoll').hidden = false;
+let bildZoom = 1, bildDrehung = 0;
+
+function bildDarstellen(){
+  const img = document.getElementById('bildseiteImg');
+  const fl = document.getElementById('bildseiteFlaeche');
+  img.style.transform = 'rotate(' + bildDrehung + 'deg) scale(' + bildZoom + ')';
+  fl.classList.toggle('frei', bildZoom > 1);
 }
+
+function bildAnzeigen(url, name){
+  const img = document.getElementById('bildseiteImg');
+  if(img.src !== url) { bildZoom = 1; bildDrehung = 0; }
+  img.src = url;
+  document.getElementById('bildseiteName').textContent = name || 'Bild';
+  document.getElementById('bildseite').hidden = false;
+  bildDarstellen();
+}
+
+function bildSeiteZu(){ document.getElementById('bildseite').hidden = true; }
 
 /* ---------- Ansichten ---------- */
 const SPALTEN = [
@@ -1671,7 +1711,7 @@ async function bilderZeichnen(){
       img.src = url; img.alt = b.name; img.title = b.name;
       const t = kachel.querySelector('.lade'); if(t) t.remove();
       kachel.insertBefore(img, kachel.firstChild);
-      img.onclick = ()=> bildAnzeigen(url);
+      img.onclick = ()=> bildAnzeigen(url, b.name);
     }catch(e){
       const t = kachel.querySelector('.lade');
       if(t) t.textContent = e.message.length > 30 ? 'nicht verfügbar' : e.message;
@@ -1964,8 +2004,17 @@ document.getElementById('btnExport').onclick = ()=>{
   exportCsv();
 };
 document.getElementById('btnSpeicherort').onclick = einstellungen;
-document.getElementById('bildvollZu').onclick = ()=>{ document.getElementById('bildvoll').hidden = true; };
-document.getElementById('bildvoll').onclick = e =>{ if(e.target.id === 'bildvoll') document.getElementById('bildvoll').hidden = true; };
+document.getElementById('bildseiteZu').onclick = bildSeiteZu;
+document.getElementById('bildGroesser').onclick = ()=>{ bildZoom = Math.min(6, bildZoom * 1.35); bildDarstellen(); };
+document.getElementById('bildKleiner').onclick = ()=>{ bildZoom = Math.max(0.25, bildZoom / 1.35); bildDarstellen(); };
+document.getElementById('bildPassend').onclick = ()=>{ bildZoom = 1; bildDarstellen(); };
+document.getElementById('bildDrehen').onclick = ()=>{ bildDrehung = (bildDrehung + 90) % 360; bildDarstellen(); };
+document.getElementById('bildseiteFlaeche').addEventListener('wheel', e =>{
+  if(!e.ctrlKey) return;
+  e.preventDefault();
+  bildZoom = Math.min(6, Math.max(0.25, bildZoom * (e.deltaY < 0 ? 1.15 : 1/1.15)));
+  bildDarstellen();
+}, {passive:false});
 (function(){
   const h = document.getElementById('huelle');
   let startAufHintergrund = false;

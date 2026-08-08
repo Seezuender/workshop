@@ -133,13 +133,19 @@
   .bildkachel .lade{font-size:10px;color:var(--stahl);text-align:center;padding:4px}
   .bildkachel .weg{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;
                    border:0;background:rgba(18,23,28,.72);color:#fff;font-size:12px;line-height:1;padding:0}
-  .bildvoll{position:fixed;inset:0;z-index:70;background:rgba(10,13,16,.94);display:flex;
-            align-items:center;justify-content:center;padding:12px}
-  .bildvoll[hidden]{display:none}
-  .bildvoll img{max-width:100%;max-height:88vh;object-fit:contain}
-  .bildvoll button{position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;
-                   background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);
-                   border-radius:var(--radius);padding:8px 13px}
+  /* Bild oben angeheftet – Formular scrollt darunter weiter */
+  .bildseite{position:sticky;top:0;z-index:3;background:#0D1116;display:flex;flex-direction:column;
+             border-bottom:1px solid rgba(255,255,255,.2)}
+  .bildseite[hidden]{display:none}
+  .bildseite-kopf{display:flex;gap:6px;align-items:center;padding:6px 8px;background:#161C22;color:#fff;font-size:12px}
+  .bildseite-kopf .wer{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+  .bildseite-kopf button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.32);
+                         border-radius:var(--radius);padding:5px 9px;font-size:12px}
+  .bildseite-flaeche{overflow:auto;height:38vh;display:flex;align-items:center;justify-content:center;padding:6px}
+  .bildseite-flaeche img{transform-origin:center center;max-width:100%;max-height:100%;object-fit:contain}
+  .bildseite-flaeche.frei{align-items:flex-start;justify-content:flex-start}
+  .bildseite-flaeche.frei img{max-width:none;max-height:none}
+  .bildseite.gross .bildseite-flaeche{height:66vh}
 
   .scheinbox{position:fixed;inset:0;z-index:75;background:rgba(10,13,16,.6);display:flex;
              align-items:center;justify-content:center;padding:14px}
@@ -183,10 +189,20 @@
 <section class="blatt" id="blatt" hidden>
   <div class="blatt-kopf"><span class="titel" id="blattTitel">Auftrag</span>
     <button class="knopf" id="btnZurueck">Zurück</button></div>
+  <div class="bildseite" id="bildseite" hidden>
+    <div class="bildseite-kopf">
+      <span class="wer" id="bildseiteName">Bild</span>
+      <button id="bildKleiner">−</button>
+      <button id="bildGroesser">+</button>
+      <button id="bildDrehen">Drehen</button>
+      <button id="bildHoehe">Größer</button>
+      <button id="bildseiteZu">Zu</button>
+    </div>
+    <div class="bildseite-flaeche" id="bildseiteFlaeche"><img id="bildseiteImg" alt="Auftragsbild"></div>
+  </div>
   <div class="blatt-inhalt" id="blattInhalt"></div>
 </section>
 
-<div class="bildvoll" id="bildvoll" hidden><img id="bildvollImg" alt="Auftragsbild"><button id="bildvollZu">Schließen</button></div>
 <div class="scheinbox" id="scheinbox" hidden><div class="scheinblatt" id="scheinblatt"></div></div>
 <div class="meldung" id="meldung" hidden></div>
 
@@ -600,9 +616,24 @@ async function bildVerwerfen(b){
       headers:{'Content-Type':'application/json'}, body: JSON.stringify({trashed:true})});
   }catch(e){}
 }
-function bildAnzeigen(url){
-  document.getElementById('bildvollImg').src = url;
-  document.getElementById('bildvoll').hidden = false;
+let bildZoom = 1, bildDrehung = 0;
+
+function bildDarstellen(){
+  const img = document.getElementById('bildseiteImg');
+  const fl = document.getElementById('bildseiteFlaeche');
+  img.style.transform = 'rotate(' + bildDrehung + 'deg) scale(' + bildZoom + ')';
+  fl.classList.toggle('frei', bildZoom > 1);
+}
+
+function bildSeiteZu(){ document.getElementById('bildseite').hidden = true; }
+
+function bildAnzeigen(url, name){
+  const img = document.getElementById('bildseiteImg');
+  if(img.src !== url){ bildZoom = 1; bildDrehung = 0; }
+  img.src = url;
+  document.getElementById('bildseiteName').textContent = name || 'Bild';
+  document.getElementById('bildseite').hidden = false;
+  bildDarstellen();
 }
 
 /* ---------- Kalender ---------- */
@@ -916,7 +947,7 @@ async function bilderZeichnen(){
       img.src = url; img.alt = b.name;
       kachel.querySelector('.lade')?.remove();
       kachel.insertBefore(img, kachel.firstChild);
-      img.onclick = ()=> bildAnzeigen(url);
+      img.onclick = ()=> bildAnzeigen(url, b.name);
     }catch(e){
       const t = kachel.querySelector('.lade');
       if(t) t.textContent = 'nicht gefunden';
@@ -960,7 +991,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-08 / 21';
+const APPVERSION = '2026-08-08 / 22';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
@@ -1040,8 +1071,15 @@ function setup(){
 /* ---------- Start ---------- */
 document.getElementById('btnNeu').onclick = ()=> editor(null);
 document.getElementById('btnZurueck').onclick = zurueck;
-document.getElementById('bildvollZu').onclick = ()=>{ document.getElementById('bildvoll').hidden = true; };
-document.getElementById('bildvoll').onclick = e =>{ if(e.target.id === 'bildvoll') document.getElementById('bildvoll').hidden = true; };
+document.getElementById('bildseiteZu').onclick = bildSeiteZu;
+document.getElementById('bildGroesser').onclick = ()=>{ bildZoom = Math.min(6, bildZoom * 1.4); bildDarstellen(); };
+document.getElementById('bildKleiner').onclick = ()=>{ bildZoom = Math.max(0.25, bildZoom / 1.4); bildDarstellen(); };
+document.getElementById('bildDrehen').onclick = ()=>{ bildDrehung = (bildDrehung + 90) % 360; bildDarstellen(); };
+document.getElementById('bildHoehe').onclick = e =>{
+  const seite = document.getElementById('bildseite');
+  const gross = seite.classList.toggle('gross');
+  e.target.textContent = gross ? 'Kleiner' : 'Größer';
+};
 document.getElementById('btnSetup').onclick = setup;
 document.getElementById('btnSync').onclick = ()=> holen();
 document.getElementById('btnJetzt').onclick = ()=> holen();
