@@ -377,7 +377,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-09 / 36';
+const VERSION = '2026-08-09 / 38';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1022,7 +1022,7 @@ function scheinAuswerten(roh){
   // Wortanfaenge des Vordrucks – faengt auch Lesefehler wie "Firmer" statt "Firmenname"
   const STAEMME = ['firm','vorname','vornam','anschr','kennz','amtl','handelsb','identifiz',
     'erstzul','hubr','fahrzeugkl','aufbau','hauptunt','marke','variant','version','name','oder',
-    'ggf','zweiter','zweite','und','naechste','nächste','datum','halter'];
+    'ggf','zweiter','zweite','und','naechste','nächste','datum','halter','vonum','vorn','vnam'];
 
   const ohneBeschriftung = t => {
     let s = String(t||'').trim();
@@ -1043,15 +1043,27 @@ function scheinAuswerten(roh){
   };
 
   const istCode = t => /^[A-Z]{1,2}\.?\d?(\.\d)?$/i.test(String(t||'').trim());
+  // Zeile beginnt mit einem anderen Codefeld, z.B. "C.1.2 Vorname(n)"
+  const beginntMitCode = t => /^[A-Z][.\s]?[0-9lIt|]([.\s]?[0-9lIt|])?[\s:.)-]/i.test(String(t||'').trim());
   const brauchbar = t => {
     const n = String(t||'').trim();
     return n.length > 1 && !istCode(n);
   };
 
   // Wert zu einem Codefeld: erst der Zeilenrest, dann die Folgezeilen
+  // Codefelder werden oft verstuemmelt gelesen: "C1.1", "Ct.2", "C3.8", "D3".
+  // Deshalb Punkte optional und die Ziffer 1 auch als l, I, t oder | zulassen.
+  const codeMuster = code => {
+    const teil = code.split('').map(z =>
+      z === '.' ? '[.\\s]?' :
+      z === '1' ? '[1lIt|]' :
+      z.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('');
+    return new RegExp('(?:^|[^A-Za-z0-9.])' + teil + '(?![0-9])[\\s:.)-]*(.*)$');
+  };
+
   const nachCode = (code, maxZeilen, pruef) => {
     const passt = v => brauchbar(v) && (!pruef || pruef(v));
-    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '(?![0-9.])[\\s:.)-]*(.*)$');
+    const muster = codeMuster(code);
     for(let i=0;i<zeilen.length;i++){
       const m = zeilen[i].match(muster);
       if(!m) continue;
@@ -1060,7 +1072,7 @@ function scheinAuswerten(roh){
       const bis = Math.min(i + (maxZeilen||3) + 1, zeilen.length);
       for(let j=i+1;j<bis;j++){
         const zeile = zeilen[j].trim();
-        if(istCode(zeile)) break;                       // naechstes Codefeld allein in der Zeile
+        if(istCode(zeile) || beginntMitCode(zeile)) break;   // naechstes Codefeld erreicht
         const n = ohneBeschriftung(zeile);
         if(passt(n)) return n;
       }
@@ -1068,18 +1080,41 @@ function scheinAuswerten(roh){
     return '';
   };
 
-  // Alle Folgezeilen eines Codefelds (fuer die Anschrift)
-  const blockNachCode = (code, anzahl) => {
-    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '(?![0-9.])[\\s:.)-]*(.*)$');
+  // Ersatzanker: ueber das Beschriftungswort, wenn der Code unlesbar ist
+  const nachWort = (wortRe, maxZeilen, pruef) => {
+    const passt = v => brauchbar(v) && (!pruef || pruef(v));
     for(let i=0;i<zeilen.length;i++){
-      const m = zeilen[i].match(muster);
+      const m = zeilen[i].match(wortRe);
+      if(!m) continue;
+      const rest = ohneBeschriftung(zeilen[i].slice(m.index + m[0].length));
+      if(passt(rest)) return rest;
+      const bis = Math.min(i + (maxZeilen||3) + 1, zeilen.length);
+      for(let j=i+1;j<bis;j++){
+        const zeile = zeilen[j].trim();
+        if(istCode(zeile) || beginntMitCode(zeile)) break;
+        const n = ohneBeschriftung(zeile);
+        if(passt(n)) return n;
+      }
+    }
+    return '';
+  };
+
+  // Erst ueber den Code, sonst ueber das Beschriftungswort
+  const feldWert = (code, wortRe, maxZeilen, pruef) =>
+    nachCode(code, maxZeilen, pruef) || (wortRe ? nachWort(wortRe, maxZeilen, pruef) : '');
+
+  // Alle Folgezeilen eines Codefelds (fuer die Anschrift)
+  const blockNachCode = (code, anzahl, wortRe) => {
+    const muster = codeMuster(code);
+    for(let i=0;i<zeilen.length;i++){
+      const m = zeilen[i].match(muster) || (wortRe ? zeilen[i].match(wortRe) : null);
       if(!m) continue;
       const aus = [];
-      const rest = ohneBeschriftung(m[1]||'');
+      const rest = ohneBeschriftung(m[1] !== undefined ? m[1] : zeilen[i].slice(m.index + m[0].length));
       if(brauchbar(rest)) aus.push(rest);
       for(let j=i+1;j<zeilen.length && aus.length<(anzahl||2);j++){
         const zeile = zeilen[j].trim();
-        if(istCode(zeile)) break;
+        if(istCode(zeile) || beginntMitCode(zeile)) break;
         const n = ohneBeschriftung(zeile);
         if(brauchbar(n)) aus.push(n);
       }
@@ -1139,7 +1174,7 @@ function scheinAuswerten(roh){
   }
 
   // ---- Modell: Codefeld, sonst laengste Buchstaben-Ziffern-Marke im Text ----
-  let modell = saeubern(nachCode('D.3'));
+  let modell = saeubern(nachCode('D.3', 3, v => !/^\d+$/.test(v)));
   if(!/[A-Za-zÄÖÜäöüß]{2,}/.test(modell)) modell = '';
   if(!modell){
     const kandidaten = (text.match(/\b[A-Z][A-Z0-9\-]{3,19}\b/g) || []).filter(w =>
@@ -1154,6 +1189,13 @@ function scheinAuswerten(roh){
   }
 
   // ---- Erstzulassung: das aelteste Datum auf dem Schein ----
+  // Feld B ist die Erstzulassung – wenn dort ein Datum steht, gilt es
+  const datumFeldB = () => {
+    const v = nachCode('B', 2, x => /\b\d{2}[.\/]\d{2}[.\/]\d{4}\b/.test(x));
+    const m = v && v.match(/\b(\d{2}[.\/]\d{2}[.\/]\d{4})\b/);
+    return m ? m[1].replace(/\//g,'.') : '';
+  };
+
   const aeltestesDatum = () => {
     const alle = text.match(/\b(\d{2})[.\/](\d{2})[.\/](\d{4})\b/g) || [];
     let bestes = '', wert = Infinity;
@@ -1166,20 +1208,29 @@ function scheinAuswerten(roh){
   };
 
   // ---- Halter: C.1.2 Vornamen + C.1.1 Nachname ----
-  // Namen: keine Ziffern, und der Geburtsname bleibt aussen vor
+  // Namen: keine Ziffern, kein Geburtsname, mindestens drei Zeichen
+  // (faengt Reste wie "de" aus "Name oder ..." ab)
   const ohneGeburtsname = v => v.replace(/\s*\bgeb\.?\b.*$/i,'').trim();
-  const istName = v => !/\d/.test(v) && !/^geb\b/i.test(v.trim()) && ohneGeburtsname(v).length > 1;
-  const nachname = ohneGeburtsname(saeubern(nachCode('C.1.1', 4, istName)));
-  const vornamen = ohneGeburtsname(saeubern(nachCode('C.1.2', 4, istName)));
+  const istName = v => !/\d/.test(v) && !/^geb\b/i.test(v.trim()) && ohneGeburtsname(v).length > 2;
+  const nachname = ohneGeburtsname(saeubern(
+    feldWert('C.1.1', /\bname\b(?!.*vorname)/i, 4, istName)));
+  const vornamen = ohneGeburtsname(saeubern(
+    feldWert('C.1.2', /vorname|vornamen|vonume|vorn\w*/i, 4, istName)));
   const kunde = [vornamen, nachname].filter(Boolean).join(' ');
 
   // ---- Anschrift aus C.1.3 ----
-  const anschrift = blockNachCode('C.1.3', 2);
+  const anschrift = blockNachCode('C.1.3', 2, /anschrift/i);
   let strasse = '', plz = '', ort = '';
   for(const z of anschrift){
     const m = z.match(/\b(\d{5})\s+(.+)$/);
     if(m){ plz = m[1]; ort = saeubern(m[2]); }
     else if(!strasse && /[A-Za-zÄÖÜäöüß]{3,}/.test(z)) strasse = saeubern(z);
+  }
+
+  // Steht die Marke vorne im Modell, wird sie dort entfernt: "KTM 125 DUKE" -> "125 DUKE"
+  if(marke && modell){
+    const ohneMarke = modell.replace(new RegExp('^' + marke.replace(/[-\s]/g,'[-\\s]') + '[\\s-]+','i'),'').trim();
+    if(ohneMarke.length > 1) modell = ohneMarke;
   }
 
   return {
@@ -1193,7 +1244,7 @@ function scheinAuswerten(roh){
     strasse: strasse,
     plz: plz,
     ort: ort,
-    erstzul: aeltestesDatum(),
+    erstzul: datumFeldB() || aeltestesDatum(),
     rohtext: text
   };
 }
@@ -1327,7 +1378,7 @@ async function scheinLesenBrowser(datei){
 function scheinPruefen(g){
   const b = document.getElementById('scheinblatt');
   const leer = SCHEINFELDER.every(f => !g[f.id]);
-  b.innerHTML = '<h3>Gefundene Angaben<span class="zieh">– Titel ziehen zum Verschieben</span></h3>'
+  b.innerHTML = '<h3>Gefundene Angaben<span class="zieh">– Titel ziehen · Fassung ' + VERSION + '</span></h3>'
     + '<p class="notiz">' + (leer
         ? 'Es ließ sich nichts sicher erkennen. Bei Fotos hilft: gerade von oben, gutes Licht, nur den Schein im Bild.'
         : 'Bitte prüfen und ändern – die Erkennung verwechselt gern 0/O und 1/I. Nur angehakte Felder werden übernommen.')
