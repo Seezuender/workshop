@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 30';
+const VERSION = '2026-08-08 / 31';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -972,7 +972,9 @@ function scheinAuswerten(roh){
     'plz','postleitzahl','ort','marke','typ','variante','version','handelsbezeichnung','handelsbezeichnungen',
     'fahrzeug','identifizierungsnummer','fahrzeugidentifizierungsnummer','amtliches','kennzeichen',
     'datum','der','erstzulassung','hubraum','leistung','fahrzeugklasse','aufbau','halter','halterin',
-    'zulassungsbescheinigung','teil','des','fahrzeughalters','in','cm','kw','n','en','ggfs','nr']);
+    'zulassungsbescheinigung','teil','des','fahrzeughalters','in','cm','kw','n','en','ggfs','nr',
+    'zweiter','zweite','zweiten','ggf','bzw','amtl','kennz','geburtsname','geburtsdatum',
+    'ordnungsmerkmal','fahrzeugklasse','aufbauart','naechste','nächste','hauptuntersuchung']);
 
   const blank = w => String(w||'').toLowerCase().replace(/[()\[\]{}.,:;\-–—\/|_]/g,'');
 
@@ -1010,6 +1012,8 @@ function scheinAuswerten(roh){
     return '';
   };
   const saeubern = s => s.replace(/[|_]+/g,' ').replace(/\s{2,}/g,' ').trim();
+  // Marke und Modell muessen Buchstaben enthalten – "0.61" ist keine Marke
+  const nurText = v => /[A-Za-zÄÖÜäöüß]{2,}/.test(String(v||'')) ? v : '';
 
   let fin = treffer(/\b([A-HJ-NPR-Z0-9]{17})\b/);
   if(!fin){
@@ -1025,8 +1029,8 @@ function scheinAuswerten(roh){
   return {
     kennzeichen: (kennzeichen||'').toUpperCase(),
     fin: (fin||'').toUpperCase(),
-    marke: saeubern(nachCode('D.1')),
-    modell: saeubern(nachCode('D.3') || nachCode('D.2')),
+    marke: nurText(saeubern(nachCode('D.1'))),
+    modell: nurText(saeubern(nachCode('D.3')) || saeubern(nachCode('D.2'))),
     kunde: halter,
     erstzul: treffer(/\b(\d{2}[.\/]\d{2}[.\/]\d{4})\b/),
     rohtext: text
@@ -1175,9 +1179,23 @@ function scheinPruefen(g){
         + '</div>').join('')
     + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
     + '<button class="k2 k2-haupt" id="scheinUeber">Übernehmen</button>'
-    + '<button class="k2" id="scheinAb">Abbrechen</button></div>';
+    + '<button class="k2" id="scheinRoh">Erkannten Text zeigen</button>'
+    + '<button class="k2" id="scheinAb">Abbrechen</button></div>'
+    + '<div id="scheinRohBox" hidden style="margin-top:10px">'
+    + '<p class="notiz">Das hat die Texterkennung geliefert. Bei Fehlzuordnungen hilft es, diesen Text weiterzugeben.</p>'
+    + '<textarea class="feld" id="scheinRohText" rows="10" readonly style="font-family:monospace;font-size:11px"></textarea>'
+    + '<button class="k2" id="scheinRohKopie" style="margin-top:6px">In die Zwischenablage</button></div>';
 
   document.getElementById('scheinAb').onclick = scheinSchliessen;
+  document.getElementById('scheinRoh').onclick = ()=>{
+    const kasten = document.getElementById('scheinRohBox');
+    kasten.hidden = !kasten.hidden;
+    document.getElementById('scheinRohText').value = g.rohtext || '(kein Text erkannt)';
+  };
+  document.getElementById('scheinRohKopie').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(g.rohtext||''); melden('Text kopiert'); }
+    catch(e){ document.getElementById('scheinRohText').select(); melden('Bitte von Hand kopieren', true); }
+  };
   document.getElementById('scheinUeber').onclick = ()=>{
     const wert = id => {
       const an = b.querySelector('[data-an="' + id + '"]');
