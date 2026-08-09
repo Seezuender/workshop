@@ -201,13 +201,19 @@
   .bildseite-flaeche.frei img{max-width:none;max-height:none}
 
 
-  .scheinbox{position:fixed;inset:0;z-index:75;background:rgba(10,13,16,.6);display:flex;
-             align-items:center;justify-content:center;padding:14px}
+  /* Ergebnisfenster: schwebt frei, laesst das Formular dahinter bedienbar */
+  .scheinbox{position:fixed;inset:0;z-index:75;background:transparent;pointer-events:none}
   .scheinbox[hidden]{display:none}
-  .scheinblatt{background:var(--blech);border-radius:var(--radius);max-width:520px;width:100%;
-               max-height:92vh;overflow-y:auto;padding:16px;border:1px solid var(--kante)}
+  .scheinblatt{background:var(--blech);border-radius:var(--radius);width:480px;max-width:94vw;
+               max-height:88vh;overflow-y:auto;padding:16px;border:1px solid var(--kante);
+               position:absolute;left:50%;top:40px;transform:translateX(-50%);
+               pointer-events:auto;box-shadow:0 18px 44px rgba(10,13,16,.34)}
   .scheinblatt h3{font-family:var(--display);letter-spacing:.1em;text-transform:uppercase;
-                  font-size:14px;margin:0 0 4px}
+                  font-size:14px;margin:0 0 4px;cursor:move;user-select:none;
+                  padding-left:18px;position:relative}
+  .scheinblatt h3::before{content:'⠿';position:absolute;left:0;top:-1px;opacity:.45;letter-spacing:0}
+  .scheinblatt h3 .zieh{font-family:var(--text);text-transform:none;letter-spacing:0;
+                        font-size:11px;color:var(--stahl);margin-left:8px}
   .scheinzeile{display:flex;gap:9px;align-items:center;margin-bottom:8px}
   .scheinzeile input[type=text]{flex:1;padding:8px 10px;border:1px solid var(--kante);
                                 border-radius:var(--radius);background:#FBFCFD}
@@ -371,7 +377,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-09 / 35';
+const VERSION = '2026-08-09 / 36';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1321,7 +1327,7 @@ async function scheinLesenBrowser(datei){
 function scheinPruefen(g){
   const b = document.getElementById('scheinblatt');
   const leer = SCHEINFELDER.every(f => !g[f.id]);
-  b.innerHTML = '<h3>Gefundene Angaben</h3>'
+  b.innerHTML = '<h3>Gefundene Angaben<span class="zieh">– Titel ziehen zum Verschieben</span></h3>'
     + '<p class="notiz">' + (leer
         ? 'Es ließ sich nichts sicher erkennen. Bei Fotos hilft: gerade von oben, gutes Licht, nur den Schein im Bild.'
         : 'Bitte prüfen und ändern – die Erkennung verwechselt gern 0/O und 1/I. Nur angehakte Felder werden übernommen.')
@@ -2312,6 +2318,36 @@ function drucken(a){
 /* ---------- Start ---------- */
 document.getElementById('btnNeu').onclick = ()=> editor(null);
 document.getElementById('btnSchliessen').onclick = schliessen;
+/* Ergebnisfenster an der Überschrift verschiebbar */
+(function(){
+  const blatt = document.getElementById('scheinblatt');
+  if(!blatt) return;
+  let zieht = false, dx = 0, dy = 0;
+  blatt.addEventListener('pointerdown', e =>{
+    if(!(e.target.closest && e.target.closest('h3'))) return;
+    const r = blatt.getBoundingClientRect();
+    blatt.style.transform = 'none';
+    blatt.style.left = r.left + 'px';
+    blatt.style.top  = r.top + 'px';
+    dx = e.clientX - r.left;
+    dy = e.clientY - r.top;
+    zieht = true;
+    try{ blatt.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  blatt.addEventListener('pointermove', e =>{
+    if(!zieht) return;
+    const r = blatt.getBoundingClientRect();
+    const x = Math.min(Math.max(0, e.clientX - dx), window.innerWidth  - r.width);
+    const y = Math.min(Math.max(0, e.clientY - dy), window.innerHeight - r.height);
+    blatt.style.left = x + 'px';
+    blatt.style.top  = y + 'px';
+  });
+  const los = ()=>{ zieht = false; };
+  blatt.addEventListener('pointerup', los);
+  blatt.addEventListener('pointercancel', los);
+})();
+
 document.getElementById('btnAktualisieren').onclick = aktualisieren;
 document.getElementById('btnEinstellungen').onclick = einstellungen;
 document.getElementById('btnExport').onclick = ()=>{
