@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 31';
+const VERSION = '2026-08-08 / 32';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -946,7 +946,11 @@ const SCHEINFELDER = [
   {id:'fin',         bez:'FIN'},
   {id:'marke',       bez:'Marke'},
   {id:'modell',      bez:'Modell'},
-  {id:'kunde',       bez:'Halter'},
+  {id:'vorname',     bez:'Vorname'},
+  {id:'nachname',    bez:'Nachname'},
+  {id:'strasse',     bez:'Straße'},
+  {id:'plz',         bez:'PLZ'},
+  {id:'ort',         bez:'Ort'},
   {id:'erstzul',     bez:'Erstzulassung'}
 ];
 
@@ -965,73 +969,150 @@ function scheinAuswerten(roh){
   const text = String(roh||'').replace(/\u00a0/g,' ');
   const zeilen = text.split('\n').map(z=>z.trim()).filter(Boolean);
   const treffer = re => { const m = text.match(re); return m ? (m[1]||m[0]).trim() : ''; };
+  const saeubern = s => String(s||'').replace(/[|_]+/g,' ').replace(/\s{2,}/g,' ').trim();
 
-  // Aufgedruckte Feldbeschriftungen des Vordrucks – nie als Wert uebernehmen
-  const BESCHRIFTUNGSWOERTER = new Set(['name','namen','oder','firmenname','firma','vorname','vornamen',
-    'vor','nach','nachname','nachnamen','und','ggf','anschrift','strasse','straße','hausnummer','wohnort',
-    'plz','postleitzahl','ort','marke','typ','variante','version','handelsbezeichnung','handelsbezeichnungen',
-    'fahrzeug','identifizierungsnummer','fahrzeugidentifizierungsnummer','amtliches','kennzeichen',
-    'datum','der','erstzulassung','hubraum','leistung','fahrzeugklasse','aufbau','halter','halterin',
-    'zulassungsbescheinigung','teil','des','fahrzeughalters','in','cm','kw','n','en','ggfs','nr',
-    'zweiter','zweite','zweiten','ggf','bzw','amtl','kennz','geburtsname','geburtsdatum',
-    'ordnungsmerkmal','fahrzeugklasse','aufbauart','naechste','nächste','hauptuntersuchung']);
+  // Aufgedruckte Beschriftungen des Vordrucks. Alles bis einschliesslich des
+  // LETZTEN Vorkommens wird abgeschnitten – so ueberleben auch verstuemmelte
+  // Fassungen wie "Ne oder Firmenname" statt "Name oder Firmenname".
+  const BESCHRIFTUNGEN = /(firmenname|vorname\(?n?\)?|vornamen|anschrift|amtliches\s+kennzeichen|kennzeichen|handelsbezeichnung(?:\(en\)|en)?|fahrzeug-?identifizierungsnummer|identifizierungsnummer|erstzulassung|hubraum|fahrzeugklasse|aufbau(?:art)?|hauptuntersuchung|leistung|marke|typ,?\s*variante,?\s*version|name)/gi;
 
-  const blank = w => String(w||'').toLowerCase().replace(/[()\[\]{}.,:;\-–—\/|_]/g,'');
-
-  // Schneidet fuehrende Vordruck-Beschriftungen weg:
-  // "Marke YAMAHA" -> "YAMAHA", "Name oder Firmenname Schneider" -> "Schneider"
   const ohneBeschriftung = t => {
-    const woerter = String(t||'').trim().split(/\s+/).filter(Boolean);
-    let i = 0;
-    while(i < woerter.length && BESCHRIFTUNGSWOERTER.has(blank(woerter[i]))) i++;
-    return woerter.slice(i).join(' ').trim();
+    const s = String(t||'').trim();
+    let ende = 0;
+    BESCHRIFTUNGEN.lastIndex = 0;
+    let m;
+    while((m = BESCHRIFTUNGEN.exec(s)) !== null) ende = m.index + m[0].length;
+    return s.slice(ende).replace(/^[\s:.)\-–—]+/,'').trim();
   };
 
+  const istCode = t => /^[A-Z]{1,2}\.?\d?(\.\d)?$/i.test(String(t||'').trim());
   const brauchbar = t => {
     const n = String(t||'').trim();
-    if(n.length < 2) return false;
-    if(/^[A-Z]\.?\d?(\.\d)?$/.test(n)) return false;   // blosse Codeangabe
-    return true;
+    return n.length > 1 && !istCode(n);
   };
 
-  const nachCode = code => {
-    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '[\\s:.)-]*(.*)$');
+  // Wert zu einem Codefeld: erst der Zeilenrest, dann die Folgezeilen
+  const nachCode = (code, maxZeilen) => {
+    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '(?![0-9.])[\\s:.)-]*(.*)$');
     for(let i=0;i<zeilen.length;i++){
       const m = zeilen[i].match(muster);
       if(!m) continue;
-      // Erst der Rest der Zeile, dann die naechsten Zeilen – Beschriftungen abschneiden
       const rest = ohneBeschriftung(m[1]||'');
       if(brauchbar(rest)) return rest;
-      for(let j=i+1;j<Math.min(i+4,zeilen.length);j++){
-        const roh = zeilen[j].trim();
-        if(/^[A-Z]\.?\d?(\.\d)?[\s:.)-]/.test(roh)) break;  // naechstes Codefeld erreicht
-        const n = ohneBeschriftung(roh);
+      const bis = Math.min(i + (maxZeilen||3) + 1, zeilen.length);
+      for(let j=i+1;j<bis;j++){
+        const zeile = zeilen[j].trim();
+        if(istCode(zeile)) break;                       // naechstes Codefeld
+        const n = ohneBeschriftung(zeile);
         if(brauchbar(n)) return n;
       }
     }
     return '';
   };
-  const saeubern = s => s.replace(/[|_]+/g,' ').replace(/\s{2,}/g,' ').trim();
-  // Marke und Modell muessen Buchstaben enthalten – "0.61" ist keine Marke
-  const nurText = v => /[A-Za-zÄÖÜäöüß]{2,}/.test(String(v||'')) ? v : '';
 
+  // Alle Folgezeilen eines Codefelds (fuer die Anschrift)
+  const blockNachCode = (code, anzahl) => {
+    const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '(?![0-9.])[\\s:.)-]*(.*)$');
+    for(let i=0;i<zeilen.length;i++){
+      const m = zeilen[i].match(muster);
+      if(!m) continue;
+      const aus = [];
+      const rest = ohneBeschriftung(m[1]||'');
+      if(brauchbar(rest)) aus.push(rest);
+      for(let j=i+1;j<zeilen.length && aus.length<(anzahl||2);j++){
+        const zeile = zeilen[j].trim();
+        if(istCode(zeile)) break;
+        const n = ohneBeschriftung(zeile);
+        if(brauchbar(n)) aus.push(n);
+      }
+      if(aus.length) return aus;
+    }
+    return [];
+  };
+
+  // ---- Fahrzeug-Identifizierungsnummer: 17 Zeichen, sonst nichts ----
   let fin = treffer(/\b([A-HJ-NPR-Z0-9]{17})\b/);
   if(!fin){
     const e = nachCode('E').replace(/[^A-HJ-NPR-Z0-9]/gi,'').toUpperCase();
     if(e.length === 17) fin = e;
   }
-  let kennzeichen = treffer(/\b([A-ZÄÖÜ]{1,3})[\s\-–—·]{1,3}([A-ZÄÖÜ]{1,2})[\s\-–—]{0,2}(\d{1,4})\s?([EH])?\b/);
-  const km = text.match(/\b([A-ZÄÖÜ]{1,3})[\s\-–—·]{1,3}([A-ZÄÖÜ]{1,2})[\s\-–—]{0,2}(\d{1,4})\s?([EH])?\b/);
-  if(km) kennzeichen = km[1] + '-' + km[2] + ' ' + km[3] + (km[4] ? km[4] : '');
 
-  const halter = [nachCode('C.1.2'), nachCode('C.1.1')].map(saeubern).filter(Boolean).join(' ');
+  // ---- Kennzeichen: bevorzugt aus Feld A ----
+  const kennzFormen = s => {
+    const m = String(s||'').toUpperCase()
+      .match(/(?:^|[^A-ZÄÖÜ0-9])([A-ZÄÖÜ]{1,3})[\s\-–—·]{0,3}([A-ZÄÖÜ]{1,2})[\s\-–—]{0,3}(\d{1,4})\s?([EH])?(?![0-9])/);
+    return m ? m[1] + '-' + m[2] + ' ' + m[3] + (m[4] || '') : '';
+  };
+  let kennzeichen = kennzFormen(nachCode('A', 2));
+  if(!kennzeichen){
+    const nachWort = text.match(/Amtliches\s+Kennzeichen[\s:.)-]*([^\n]*)\n?([^\n]*)/i);
+    if(nachWort) kennzeichen = kennzFormen(nachWort[1]) || kennzFormen(nachWort[2]);
+  }
+  if(!kennzeichen && fin){
+    // Notnagel: irgendwo im Text, aber nie innerhalb der FIN
+    const ohneFin = text.split(fin).join(' ');
+    kennzeichen = kennzFormen(ohneFin);
+  }
+
+  // ---- Marke: ueber bekannte Hersteller, weil der Wert weit vom Code steht ----
+  const HERSTELLER = ['HONDA','YAMAHA','SUZUKI','KAWASAKI','BMW','KTM','DUCATI','TRIUMPH',
+    'HARLEY-DAVIDSON','HARLEY DAVIDSON','APRILIA','MOTO GUZZI','PIAGGIO','VESPA','HUSQVARNA',
+    'HUSABERG','ROYAL ENFIELD','MV AGUSTA','BENELLI','INDIAN','CFMOTO','CF MOTO','SYM','KYMCO',
+    'PEUGEOT','DERBI','GILERA','BETA','GASGAS','GAS GAS','SHERCO','SWM','FANTIC','MASH','BRIXTON',
+    'VOGE','QJ MOTOR','KEEWAY','ZONTES','SIMSON','MZ','HYOSUNG','BUELL','VICTORY','ZERO','NIU',
+    'MERCEDES-BENZ','VOLKSWAGEN','AUDI','OPEL','FORD','SKODA','SEAT','RENAULT','FIAT','TOYOTA'];
+  const gross = text.toUpperCase();
+  let marke = '';
+  for(const h of HERSTELLER){
+    if(new RegExp('\\b' + h.replace(/[-\s]/g,'[-\\s]') + '\\b').test(gross)){
+      if(h.length > marke.length) marke = h;
+    }
+  }
+  if(!marke){
+    const d1 = saeubern(nachCode('D.1'));
+    if(/[A-Za-zÄÖÜäöüß]{2,}/.test(d1)) marke = d1;
+  }
+
+  // ---- Modell: Codefeld, sonst laengste Buchstaben-Ziffern-Marke im Text ----
+  let modell = saeubern(nachCode('D.3'));
+  if(!/[A-Za-zÄÖÜäöüß]{2,}/.test(modell)) modell = '';
+  if(!modell){
+    const kandidaten = (text.match(/\b[A-Z][A-Z0-9\-]{3,19}\b/g) || []).filter(w =>
+      /[A-Z]/.test(w) && /[0-9]/.test(w) &&           // Buchstaben UND Ziffern
+      w !== fin && w.length !== 17 &&                  // nicht die FIN
+      !/^\d/.test(w) &&                                // nicht mit Ziffer beginnend
+      !/ZR|\//.test(w) &&                              // keine Reifengroesse
+      (w.match(/-/g)||[]).length < 2 &&                 // keine Belegnummer wie FN-K-0-124
+      !HERSTELLER.includes(w));
+    kandidaten.sort((a,b)=> b.length - a.length);
+    modell = kandidaten[0] || '';
+  }
+
+  // ---- Halter: C.1.2 Vornamen + C.1.1 Nachname ----
+  const nachname = saeubern(nachCode('C.1.1'));
+  const vornamen = saeubern(nachCode('C.1.2'));
+  const kunde = [vornamen, nachname].filter(Boolean).join(' ');
+
+  // ---- Anschrift aus C.1.3 ----
+  const anschrift = blockNachCode('C.1.3', 2);
+  let strasse = '', plz = '', ort = '';
+  for(const z of anschrift){
+    const m = z.match(/\b(\d{5})\s+(.+)$/);
+    if(m){ plz = m[1]; ort = saeubern(m[2]); }
+    else if(!strasse && /[A-Za-zÄÖÜäöüß]{3,}/.test(z)) strasse = saeubern(z);
+  }
 
   return {
     kennzeichen: (kennzeichen||'').toUpperCase(),
     fin: (fin||'').toUpperCase(),
-    marke: nurText(saeubern(nachCode('D.1'))),
-    modell: nurText(saeubern(nachCode('D.3')) || saeubern(nachCode('D.2'))),
-    kunde: halter,
+    marke: marke,
+    modell: modell,
+    vorname: vornamen,
+    nachname: nachname,
+    kunde: kunde,
+    strasse: strasse,
+    plz: plz,
+    ort: ort,
     erstzul: treffer(/\b(\d{2}[.\/]\d{2}[.\/]\d{4})\b/),
     rohtext: text
   };
@@ -1209,8 +1290,13 @@ function scheinPruefen(g){
     const fin = wert('fin');        if(fin) entwurf.fahrzeug.fin = fin.toUpperCase();
     const ma = wert('marke');       if(ma) entwurf.fahrzeug.marke = ma;
     const mo = wert('modell');      if(mo) entwurf.fahrzeug.modell = mo;
-    const ku = wert('kunde');
-    if(ku){ const t = kundeTeile({name:ku}); entwurf.kunde.vorname = t.vorname; entwurf.kunde.nachname = t.nachname; entwurf.kunde.name = ku; }
+    const vn = wert('vorname'), nn = wert('nachname');
+    if(vn) entwurf.kunde.vorname = vn;
+    if(nn) entwurf.kunde.nachname = nn;
+    if(vn || nn) entwurf.kunde.name = [entwurf.kunde.vorname, entwurf.kunde.nachname].filter(Boolean).join(' ');
+    const st = wert('strasse'); if(st) entwurf.kunde.strasse = st;
+    const pl = wert('plz');     if(pl) entwurf.kunde.plz = pl;
+    const or = wert('ort');     if(or) entwurf.kunde.ort = or;
     const ez = wert('erstzul');
     if(ez && !(entwurf.notiz||'').includes(ez)) entwurf.notiz = ((entwurf.notiz||'') + '\nErstzulassung ' + ez).trim();
     scheinSchliessen();
