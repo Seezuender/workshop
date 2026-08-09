@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 28';
+const VERSION = '2026-08-08 / 29';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1041,21 +1041,94 @@ async function scheinBildWaehlen(){
   });
 }
 
+
+/* ---------- Fahrzeugschein mit Googles Drive-Texterkennung ---------- */
+function scheinWeg(){
+  return lsGet('werkstatt-scheinweg') || 'drive';
+}
+
+// Bild verkleinern: Drive verlangt hoechstens 2 MB
+async function bildVerkleinern(blob){
+  if(blob.size < 1600000) return blob;
+  const bild = await new Promise((ok, fehl)=>{
+    const i = new Image();
+    i.onload = ()=> ok(i);
+    i.onerror = ()=> fehl(new Error('Bild konnte nicht gelesen werden'));
+    i.src = URL.createObjectURL(blob);
+  });
+  const kante = 2200;
+  const f = Math.min(1, kante / Math.max(bild.width, bild.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bild.width * f);
+  c.height = Math.round(bild.height * f);
+  c.getContext('2d').drawImage(bild, 0, 0, c.width, c.height);
+  const klein = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.85));
+  return (klein && klein.size < blob.size) ? klein : blob;
+}
+
+async function scheinLesenDrive(datei){
+  scheinFortschritt('Bild wird vorbereitet …', 0.1);
+  const bild = await bildVerkleinern(datei);
+  if(bild.size > 2000000) throw new Error('Bild ist auch verkleinert zu groß für die Drive-Texterkennung');
+
+  // Bild als Google-Dokument hochladen – dabei liest Drive den Text
+  scheinFortschritt('Bild wird an Drive übergeben …', 0.3);
+  const grenze = 'werkstatt' + Date.now();
+  const kopf = {name: 'Texterkennung ' + new Date().toISOString(), mimeType: 'application/vnd.google-apps.document'};
+  const rumpf = new Blob([
+    '--' + grenze + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',
+    JSON.stringify(kopf) + '\r\n',
+    '--' + grenze + '\r\nContent-Type: ' + (bild.type || 'image/jpeg') + '\r\n\r\n',
+    bild,
+    '\r\n--' + grenze + '--\r\n'
+  ]);
+  const r = await driveApi('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=de',
+    {method:'POST', headers:{'Content-Type':'multipart/related; boundary=' + grenze}, body: rumpf});
+  const dok = (await r.json()).id;
+  if(!dok) throw new Error('Drive hat kein Dokument angelegt');
+
+  try{
+    scheinFortschritt('Text wird abgeholt …', 0.7);
+    const t = await driveApi('https://www.googleapis.com/drive/v3/files/' + dok + '/export?mimeType=text/plain');
+    const text = await t.text();
+    return text;
+  }finally{
+    // Hilfsdokument wieder entfernen, damit das Drive nicht zuwuchert
+    try{ await driveApi('https://www.googleapis.com/drive/v3/files/' + dok, {method:'DELETE'}); }catch(e){}
+  }
+}
+
 async function scheinLesen(quelle){
   try{
-    scheinFortschritt('Texterkennung wird geladen …', 0);
-    await tesseractLaden();
-    scheinFortschritt('Bild wird geladen …', 0.03);
+    scheinFortschritt('Bild wird geladen …', 0.02);
     const datei = (quelle instanceof Blob) ? quelle : await (await fetch(await bildUrl(quelle))).blob();
-    scheinFortschritt('Bild wird gelesen …', 0.05);
-    const erg = await Tesseract.recognize(datei, 'deu', {
-      logger: m => { if(m.status === 'recognizing text') scheinFortschritt('Bild wird gelesen …', m.progress); }
-    });
-    scheinPruefen(scheinAuswerten(erg.data && erg.data.text));
+
+    let text = '';
+    if(scheinWeg() === 'drive'){
+      try{
+        text = await scheinLesenDrive(datei);
+      }catch(eDrive){
+        melden('Drive-Texterkennung nicht möglich (' + eDrive.message + ') – ich lese im Browser.', true);
+        text = await scheinLesenBrowser(datei);
+      }
+    }else{
+      text = await scheinLesenBrowser(datei);
+    }
+    scheinPruefen(scheinAuswerten(text));
   }catch(e){
     scheinSchliessen();
     melden(e.message || 'Texterkennung fehlgeschlagen', true);
   }
+}
+
+async function scheinLesenBrowser(datei){
+  scheinFortschritt('Texterkennung wird geladen …', 0);
+  await tesseractLaden();
+  scheinFortschritt('Bild wird gelesen …', 0.05);
+  const erg = await Tesseract.recognize(datei, 'deu', {
+    logger: m => { if(m.status === 'recognizing text') scheinFortschritt('Bild wird gelesen …', m.progress); }
+  });
+  return (erg.data && erg.data.text) || '';
 }
 
 function scheinPruefen(g){
@@ -1791,6 +1864,13 @@ function einstellungen(){
     <label for="sBetrieb">Betrieb, Anschrift, Kontakt (mehrzeilig)</label>
     <textarea class="feld" id="sBetrieb" rows="4">${esc(s.betrieb || VORGABE.betrieb)}</textarea>
   </fieldset>
+  <fieldset><legend>Texterkennung Fahrzeugschein</legend>
+    <p class="notiz">Die Drive-Erkennung ist deutlich treffsicherer und kostet nichts extra. Ohne Netz oder Anmeldung weicht sie von selbst auf den Browser aus.</p>
+    <select class="feld" id="sSchein">
+      <option value="drive" ${scheinWeg()==='drive'?'selected':''}>Google Drive – treffsicher, braucht Netz</option>
+      <option value="browser" ${scheinWeg()==='browser'?'selected':''}>Im Browser – ohne Datenversand, ungenauer</option>
+    </select>
+  </fieldset>
   <fieldset><legend>Speicherdatei</legend>
     <p class="notiz" id="speicherInfo"></p>
     ${kannDatei ? `
@@ -1845,6 +1925,11 @@ function einstellungen(){
       betrieb: document.getElementById('sBetrieb').value
     };
     speichern(); schliessen(); render();
+  };
+  const sw = document.getElementById('sSchein');
+  if(sw) sw.onchange = e =>{
+    lsSet('werkstatt-scheinweg', e.target.value);
+    melden(e.target.value === 'drive' ? 'Fahrzeugscheine werden über Drive gelesen' : 'Fahrzeugscheine werden im Browser gelesen');
   };
   document.getElementById('speicherInfo').textContent = dateiGriff
     ? 'Jede Änderung wird sofort in ' + dateiGriff.name + ' geschrieben. Liegt die Datei im Google-Drive-Ordner, synchronisiert Drive sie von selbst.'
