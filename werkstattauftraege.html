@@ -370,7 +370,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 29';
+const VERSION = '2026-08-08 / 30';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -966,17 +966,45 @@ function scheinAuswerten(roh){
   const zeilen = text.split('\n').map(z=>z.trim()).filter(Boolean);
   const treffer = re => { const m = text.match(re); return m ? (m[1]||m[0]).trim() : ''; };
 
+  // Aufgedruckte Feldbeschriftungen des Vordrucks – nie als Wert uebernehmen
+  const BESCHRIFTUNGSWOERTER = new Set(['name','namen','oder','firmenname','firma','vorname','vornamen',
+    'vor','nach','nachname','nachnamen','und','ggf','anschrift','strasse','straße','hausnummer','wohnort',
+    'plz','postleitzahl','ort','marke','typ','variante','version','handelsbezeichnung','handelsbezeichnungen',
+    'fahrzeug','identifizierungsnummer','fahrzeugidentifizierungsnummer','amtliches','kennzeichen',
+    'datum','der','erstzulassung','hubraum','leistung','fahrzeugklasse','aufbau','halter','halterin',
+    'zulassungsbescheinigung','teil','des','fahrzeughalters','in','cm','kw','n','en','ggfs','nr']);
+
+  const blank = w => String(w||'').toLowerCase().replace(/[()\[\]{}.,:;\-–—\/|_]/g,'');
+
+  // Schneidet fuehrende Vordruck-Beschriftungen weg:
+  // "Marke YAMAHA" -> "YAMAHA", "Name oder Firmenname Schneider" -> "Schneider"
+  const ohneBeschriftung = t => {
+    const woerter = String(t||'').trim().split(/\s+/).filter(Boolean);
+    let i = 0;
+    while(i < woerter.length && BESCHRIFTUNGSWOERTER.has(blank(woerter[i]))) i++;
+    return woerter.slice(i).join(' ').trim();
+  };
+
+  const brauchbar = t => {
+    const n = String(t||'').trim();
+    if(n.length < 2) return false;
+    if(/^[A-Z]\.?\d?(\.\d)?$/.test(n)) return false;   // blosse Codeangabe
+    return true;
+  };
+
   const nachCode = code => {
     const muster = new RegExp('(?:^|[^A-Za-z0-9.])' + code.replace(/\./g,'\\.') + '[\\s:.)-]*(.*)$');
     for(let i=0;i<zeilen.length;i++){
       const m = zeilen[i].match(muster);
-      if(m){
-        const rest = (m[1]||'').trim();
-        if(rest.length > 1) return rest;
-        for(let j=i+1;j<Math.min(i+3,zeilen.length);j++){
-          const n = zeilen[j].trim();
-          if(n.length > 1 && !/^[A-Z]\.?\d?(\.\d)?$/.test(n)) return n;
-        }
+      if(!m) continue;
+      // Erst der Rest der Zeile, dann die naechsten Zeilen – Beschriftungen abschneiden
+      const rest = ohneBeschriftung(m[1]||'');
+      if(brauchbar(rest)) return rest;
+      for(let j=i+1;j<Math.min(i+4,zeilen.length);j++){
+        const roh = zeilen[j].trim();
+        if(/^[A-Z]\.?\d?(\.\d)?[\s:.)-]/.test(roh)) break;  // naechstes Codefeld erreicht
+        const n = ohneBeschriftung(roh);
+        if(brauchbar(n)) return n;
       }
     }
     return '';
