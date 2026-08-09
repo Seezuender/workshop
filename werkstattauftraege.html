@@ -331,6 +331,7 @@
   <h1>Werkstattaufträge</h1>
   <span class="zaehler" id="zaehler"></span>
   <button class="knopf" id="btnSpeicherort" title="Speicherdatei festlegen">○ Speicherort</button>
+  <button class="knopf" id="btnAktualisieren" title="Speicherdatei neu einlesen – zeigt Änderungen vom Handy">↻ Aktualisieren</button>
   <button class="knopf" id="btnEinstellungen">Einstellungen</button>
   <button class="knopf" id="btnExport">Export</button>
   <button class="knopf knopf-voll" id="btnNeu">+ Neuer Auftrag</button>
@@ -370,7 +371,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-08 / 32';
+const VERSION = '2026-08-09 / 33';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -499,6 +500,42 @@ function speicherStand(){
   }else{
     b.textContent = kannDatei ? '○ Keine Speicherdatei' : '○ Speicherort';
     b.title = 'Speicherdatei festlegen';
+  }
+}
+
+async function aktualisieren(){
+  // Offener Auftrag: nicht ungefragt verwerfen
+  const huelle = document.getElementById('huelle');
+  if(huelle && !huelle.hidden &&
+     !confirm('Der geöffnete Auftrag wird geschlossen. Noch nicht gespeicherte Eingaben gehen dabei verloren. Trotzdem neu einlesen?')) return;
+
+  const knopf = document.getElementById('btnAktualisieren');
+  if(knopf){ knopf.disabled = true; knopf.textContent = '↻ liest …'; }
+  try{
+    if(!dateiGriff){
+      melden('Keine Speicherdatei verbunden – bitte zuerst den Speicherort festlegen.', true);
+      return;
+    }
+    if(!await rechtePruefen(dateiGriff, true)){
+      melden('Zugriff auf ' + dateiGriff.name + ' wurde abgelehnt.', true);
+      return;
+    }
+    const vorher = daten.auftraege.length;
+    const g = await dateiLesen(dateiGriff);
+    if(!g){ melden('Die Speicherdatei ist leer.', true); return; }
+    uebernehmeDaten(g);
+    schliessen();
+    render();
+    speicherStand();
+    const jetzt = daten.auftraege.length;
+    const zu = jetzt - vorher;
+    melden('Neu eingelesen aus ' + dateiGriff.name
+      + (zu > 0 ? ' – ' + zu + ' Auftrag/Aufträge mehr' : zu < 0 ? ' – ' + (-zu) + ' weniger' : ''));
+  }catch(e){
+    melden('Neu einlesen fehlgeschlagen: ' + (e.message || e)
+      + ' – hat Google Drive den Ordner schon synchronisiert?', true);
+  }finally{
+    if(knopf){ knopf.disabled = false; knopf.textContent = '↻ Aktualisieren'; }
   }
 }
 
@@ -2238,6 +2275,7 @@ function drucken(a){
 /* ---------- Start ---------- */
 document.getElementById('btnNeu').onclick = ()=> editor(null);
 document.getElementById('btnSchliessen').onclick = schliessen;
+document.getElementById('btnAktualisieren').onclick = aktualisieren;
 document.getElementById('btnEinstellungen').onclick = einstellungen;
 document.getElementById('btnExport').onclick = ()=>{
   if(!daten.auftraege.length){ melden('Noch keine Aufträge zum Exportieren.', true); return; }
