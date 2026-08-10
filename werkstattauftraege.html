@@ -218,6 +218,10 @@
   .scheinzeile input[type=text]{flex:1;padding:8px 10px;border:1px solid var(--kante);
                                 border-radius:var(--radius);background:#FBFCFD}
   .scheinzeile .bez{width:104px;font-size:12px;color:var(--stahl);flex:none}
+  .datumwahl{margin:-4px 0 10px 113px;font-size:11px;color:var(--stahl)}
+  .datumwahl button{margin:2px 4px 0 0;padding:3px 8px;font-size:11px;border:1px solid var(--kante);
+                    border-radius:var(--radius);background:#FBFCFD;cursor:pointer}
+  .datumwahl button.aktiv{background:var(--oel);color:#fff;border-color:var(--oel)}
   .fortschritt{height:6px;background:#E3E9ED;border-radius:3px;overflow:hidden;margin:10px 0}
   .fortschritt div{height:100%;background:var(--oel);width:0%}
   .leer{
@@ -377,7 +381,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-09 / 38';
+const VERSION = '2026-08-09 / 39';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1196,6 +1200,16 @@ function scheinAuswerten(roh){
     return m ? m[1].replace(/\//g,'.') : '';
   };
 
+  // Alle Datumsangaben, aufsteigend – zur Auswahl im Prueffenster
+  const alleDaten = () => {
+    const roh = text.match(/\b\d{2}[.\/]\d{2}[.\/]\d{4}\b/g) || [];
+    const einmalig = [...new Set(roh.map(d => d.replace(/\//g,'.')))];
+    return einmalig.sort((a,b)=>{
+      const z = d => { const t = d.split('.'); return +t[2]*10000 + +t[1]*100 + +t[0]; };
+      return z(a) - z(b);
+    });
+  };
+
   const aeltestesDatum = () => {
     const alle = text.match(/\b(\d{2})[.\/](\d{2})[.\/](\d{4})\b/g) || [];
     let bestes = '', wert = Infinity;
@@ -1245,6 +1259,7 @@ function scheinAuswerten(roh){
     plz: plz,
     ort: ort,
     erstzul: datumFeldB() || aeltestesDatum(),
+    datumListe: alleDaten(),
     rohtext: text
   };
 }
@@ -1388,7 +1403,13 @@ function scheinPruefen(g){
         + '<input type="checkbox" data-an="' + f.id + '" ' + (g[f.id] ? 'checked' : '') + '>'
         + '<span class="bez">' + f.bez + '</span>'
         + '<input type="text" data-w="' + f.id + '" value="' + String(g[f.id]||'').replace(/"/g,'&quot;') + '">'
-        + '</div>').join('')
+        + '</div>'
+        + (f.id === 'erstzul' && g.datumListe && g.datumListe.length > 1
+            ? '<div class="datumwahl">Weitere Daten auf dem Schein: '
+              + g.datumListe.map(d => '<button type="button" data-datum="' + d + '"'
+                  + (d === g[f.id] ? ' class="aktiv"' : '') + '>' + d + '</button>').join('')
+              + '</div>'
+            : '')).join('')
     + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
     + '<button class="k2 k2-haupt" id="scheinUeber">Übernehmen</button>'
     + '<button class="k2" id="scheinRoh">Erkannten Text zeigen</button>'
@@ -1398,6 +1419,14 @@ function scheinPruefen(g){
     + '<textarea class="feld" id="scheinRohText" rows="10" readonly style="font-family:monospace;font-size:11px"></textarea>'
     + '<button class="k2" id="scheinRohKopie" style="margin-top:6px">In die Zwischenablage</button></div>';
 
+  b.querySelectorAll('[data-datum]').forEach(kn => kn.onclick = ()=>{
+    const feld = b.querySelector('[data-w="erstzul"]');
+    const an   = b.querySelector('[data-an="erstzul"]');
+    if(feld) feld.value = kn.dataset.datum;
+    if(an) an.checked = true;
+    b.querySelectorAll('[data-datum]').forEach(x => x.classList.remove('aktiv'));
+    kn.classList.add('aktiv');
+  });
   document.getElementById('scheinAb').onclick = scheinSchliessen;
   document.getElementById('scheinRoh').onclick = ()=>{
     const kasten = document.getElementById('scheinRohBox');
