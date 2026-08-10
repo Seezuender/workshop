@@ -158,10 +158,6 @@
   .scheinzeile input[type=text]{flex:1;padding:8px 10px;border:1px solid var(--kante);
                                 border-radius:var(--radius);background:#FBFCFD}
   .scheinzeile .bez{width:104px;font-size:12px;color:var(--stahl);flex:none}
-  .datumwahl{margin:-4px 0 10px 113px;font-size:11px;color:var(--stahl)}
-  .datumwahl button{margin:2px 4px 0 0;padding:3px 8px;font-size:11px;border:1px solid var(--kante);
-                    border-radius:var(--radius);background:#FBFCFD;cursor:pointer}
-  .datumwahl button.aktiv{background:var(--oel);color:#fff;border-color:var(--oel)}
   .fortschritt{height:6px;background:#E3E9ED;border-radius:3px;overflow:hidden;margin:10px 0}
   .fortschritt div{height:100%;background:var(--oel);width:0%}
   .meldung{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom));
@@ -475,7 +471,10 @@ function scheinAuswerten(roh){
     const woerter = s.split(/\s+/).filter(Boolean);
     let i = 0;
     while(i < woerter.length){
-      const w = woerter[i].toLowerCase().replace(/[()\[\]{}.,:;\-–—\/|_]/g,'');
+      const roh = woerter[i];
+      const w = roh.toLowerCase().replace(/[()\[\]{}.,:;\-–—\/|_]/g,'');
+      // "Vorname(n)", "Vomame(n)" – die Klammerform verraet die Beschriftung
+      if(/\(\s*n\s*\)\.?$/i.test(roh)){ i++; continue; }
       if(STAEMME.some(st => w.startsWith(st))) i++; else break;
     }
     return woerter.slice(i).join(' ').trim();
@@ -660,7 +659,8 @@ function scheinAuswerten(roh){
   // Namen: keine Ziffern, kein Geburtsname, mindestens drei Zeichen
   // (faengt Reste wie "de" aus "Name oder ..." ab)
   const ohneGeburtsname = v => v.replace(/\s*\bgeb\.?\b.*$/i,'').trim();
-  const istName = v => !/\d/.test(v) && !/^geb\b/i.test(v.trim()) && ohneGeburtsname(v).length > 2;
+  const istName = v => !/\d/.test(v) && !/^geb\b/i.test(v.trim())
+    && !/\(\s*n\s*\)/i.test(v) && ohneGeburtsname(v).length > 2;
   const nachname = ohneGeburtsname(saeubern(
     feldWert('C.1.1', /\bname\b(?!.*vorname)/i, 4, istName)));
   const vornamen = ohneGeburtsname(saeubern(
@@ -815,13 +815,7 @@ function scheinPruefen(g){
         + '<input type="checkbox" data-an="' + f.id + '" ' + (g[f.id] ? 'checked' : '') + '>'
         + '<span class="bez">' + f.bez + '</span>'
         + '<input type="text" data-w="' + f.id + '" value="' + String(g[f.id]||'').replace(/"/g,'&quot;') + '">'
-        + '</div>'
-        + (f.id === 'erstzul' && g.datumListe && g.datumListe.length > 1
-            ? '<div class="datumwahl">Weitere Daten auf dem Schein: '
-              + g.datumListe.map(d => '<button type="button" data-datum="' + d + '"'
-                  + (d === g[f.id] ? ' class="aktiv"' : '') + '>' + d + '</button>').join('')
-              + '</div>'
-            : '')).join('')
+        + '</div>').join('')
     + '<div class="aktionen" style="position:static;border:0;padding:12px 0 0">'
     + '<button class="k2 k2-haupt" id="scheinUeber">Übernehmen</button>'
     + '<button class="k2" id="scheinRoh">Erkannten Text zeigen</button>'
@@ -831,14 +825,6 @@ function scheinPruefen(g){
     + '<textarea class="feld" id="scheinRohText" rows="10" readonly style="font-family:monospace;font-size:11px"></textarea>'
     + '<button class="k2" id="scheinRohKopie" style="margin-top:6px">In die Zwischenablage</button></div>';
 
-  b.querySelectorAll('[data-datum]').forEach(kn => kn.onclick = ()=>{
-    const feld = b.querySelector('[data-w="erstzul"]');
-    const an   = b.querySelector('[data-an="erstzul"]');
-    if(feld) feld.value = kn.dataset.datum;
-    if(an) an.checked = true;
-    b.querySelectorAll('[data-datum]').forEach(x => x.classList.remove('aktiv'));
-    kn.classList.add('aktiv');
-  });
   document.getElementById('scheinAb').onclick = scheinSchliessen;
   document.getElementById('scheinRoh').onclick = ()=>{
     const kasten = document.getElementById('scheinRohBox');
@@ -869,8 +855,7 @@ function scheinPruefen(g){
     const st = wert('strasse'); if(st) entwurf.kunde.strasse = st;
     const pl = wert('plz');     if(pl) entwurf.kunde.plz = pl;
     const or = wert('ort');     if(or) entwurf.kunde.ort = or;
-    const ez = wert('erstzul');
-    if(ez && !(entwurf.notiz||'').includes(ez)) entwurf.notiz = ((entwurf.notiz||'') + '\nErstzulassung ' + ez).trim();
+    const ez = wert('erstzul'); if(ez) entwurf.fahrzeug.erstzulassung = ez;
     scheinSchliessen();
     zeichne();
     melden('Angaben übernommen – bitte gegenprüfen');
@@ -1103,7 +1088,7 @@ function kundeName(k){
 function leerAuftrag(){
   return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
     angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
-    kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:''},
+    kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:'',erstzulassung:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
 function posZeile(art,p,i){
@@ -1169,6 +1154,7 @@ function zeichne(){
       <input class="feld" id="fKennz" placeholder="Kennzeichen" value="${esc(a.fahrzeug.kennzeichen||'')}">
       <input class="feld" id="fKm" type="number" inputmode="numeric" placeholder="km-Stand" value="${esc(a.fahrzeug.km||'')}">
     </div>
+    <input class="feld" id="fErstzul" placeholder="Erstzulassung (TT.MM.JJJJ)" value="${esc(a.fahrzeug.erstzulassung||'')}">
     <input class="feld" id="fFin" placeholder="FIN" value="${esc(a.fahrzeug.fin||'')}">
     <button class="plus" id="btnSchein">Fahrzeugschein auslesen</button>
   </fieldset>
@@ -1288,7 +1274,7 @@ function uebernehmen(){
   entwurf.kunde = {vorname:kv, nachname:kn, name:[kv,kn].filter(Boolean).join(' '),
                    telefon:v('kTel'), email:v('kMail'), strasse:v('kStr'), plz:v('kPlz'), ort:v('kOrt')};
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
-                      fin:v('fFin').toUpperCase(), km:v('fKm')};
+                      fin:v('fFin').toUpperCase(), km:v('fKm'), erstzulassung:v('fErstzul')};
   entwurf.anliegen = v('fAnliegen'); entwurf.notiz = v('fNotiz');
   document.querySelectorAll('#blattInhalt .pos').forEach(p=>{
     const art = p.dataset.art, n = +p.dataset.i;
@@ -1314,7 +1300,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-09 / 32';
+const APPVERSION = '2026-08-09 / 35';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
