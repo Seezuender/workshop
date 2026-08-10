@@ -496,7 +496,7 @@ function scheinAuswerten(roh){
       z === '.' ? '[.\\s]?' :
       z === '1' ? '[1lIt|]' :
       z.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('');
-    return new RegExp('(?:^|[^A-Za-z0-9.])' + teil + '(?![0-9])[\\s:.)-]*(.*)$');
+    return new RegExp('(?:^|[^A-Za-z0-9.])' + teil + '(?![A-Za-z0-9])[\\s:.)-]*(.*)$');
   };
 
   const nachCode = (code, maxZeilen, pruef) => {
@@ -644,6 +644,14 @@ function scheinAuswerten(roh){
     });
   };
 
+  // Ohne lesbares Feld B: das mittlere Datum. Das aelteste ist meist die
+  // Typgenehmigung, das neueste das Ausstellungsdatum der Bescheinigung.
+  const mittleresDatum = () => {
+    const liste = alleDaten();
+    if(!liste.length) return '';
+    return liste[Math.floor((liste.length - 1) / 2)];
+  };
+
   const aeltestesDatum = () => {
     const alle = text.match(/\b(\d{2})[.\/](\d{2})[.\/](\d{4})\b/g) || [];
     let bestes = '', wert = Infinity;
@@ -693,7 +701,7 @@ function scheinAuswerten(roh){
     strasse: strasse,
     plz: plz,
     ort: ort,
-    erstzul: datumFeldB() || aeltestesDatum(),
+    erstzul: datumFeldB() || mittleresDatum(),
     datumListe: alleDaten(),
     rohtext: text
   };
@@ -1300,7 +1308,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-09 / 35';
+const APPVERSION = '2026-08-09 / 36';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
