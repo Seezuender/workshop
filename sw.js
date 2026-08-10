@@ -1,6 +1,6 @@
 /* Service Worker: haelt die Oberflaeche offline verfuegbar.
    Auftragsdaten kommen immer frisch aus Google Drive, werden also nie zwischengespeichert. */
-const CACHE = 'werkstatt-v36';
+const CACHE = 'werkstatt-v38';
 const HUELLE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

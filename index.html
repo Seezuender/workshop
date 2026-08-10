@@ -215,7 +215,7 @@ const STATUS = [
   {id:'fertig',     label:'Fertig',     kurz:'Fertig'},
   {id:'abgeholt',   label:'Abgeholt',   kurz:'Abg'}
 ];
-const VORGABE = {stundensatz:96, kleinunternehmer:false, mwst:19, betrieb:'UCL Motorrad\nBergheimer Straße 26\n88677 Markdorf'};
+const VORGABE = {aw:9.60, stundensatz:96, kleinunternehmer:false, mwst:19, betrieb:'UCL Motorrad\nBergheimer Straße 26\n88677 Markdorf'};
 const SCOPE = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events';
 const ZEITZONE = 'Europe/Berlin';
 
@@ -229,13 +229,40 @@ const z = v => { const n = parseFloat(String(v).replace(',','.')); return isNaN(
 const eur = n => n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
 const datum = s => s ? new Date(s+'T00:00:00').toLocaleDateString('de-DE') : '–';
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Arbeitswerte (AW): 1 AW = ein Zehntel Stunde ---------- */
+function awStundensatz(){ return z((daten.settings && daten.settings.aw) || 0) * 10; }
+
+function migriereAW(d){
+  if(!d || !d.settings) return d;
+  if(d.settings.aw === undefined || d.settings.aw === ''){
+    const std = z(d.settings.stundensatz);
+    d.settings.aw = std ? Math.round((std / 10) * 100) / 100 : VORGABE.aw;
+  }
+  (d.auftraege || []).forEach(a =>{
+    (a.arbeit || []).forEach(p =>{
+      if(p.aw === undefined && p.std !== undefined){
+        p.aw = z(p.std) ? Math.round(z(p.std) * 10 * 100) / 100 : '';
+        p.satz = z(p.satz) ? Math.round((z(p.satz) / 10) * 100) / 100 : d.settings.aw;
+        delete p.std;
+      }
+    });
+  });
+  return d;
+}
+
 function summen(a){
-  const arbeit = (a.arbeit||[]).reduce((s,p)=>s+z(p.std)*z(p.satz),0);
-  const teile  = (a.teile||[]).reduce((s,p)=>s+z(p.menge)*z(p.preis),0);
-  const netto = arbeit+teile;
   const satz = daten.settings.kleinunternehmer ? 0 : (daten.settings.mwst === undefined || daten.settings.mwst === '' ? 19 : z(daten.settings.mwst));
+  const brutto1 = preisModus(a) === 'brutto';
+  const raus = w => brutto1 ? w / (1 + satz/100) : w;
+  const arbeit = raus((a.arbeit||[]).reduce((s,p)=>s+z(p.aw)*z(p.satz),0));
+  const teile  = raus((a.teile||[]).reduce((s,p)=>s+z(p.menge)*z(p.preis),0));
+  const netto = arbeit+teile;
   const steuer = netto*satz/100;
-  return {arbeit,teile,netto,steuer,brutto:netto+steuer,satz};
+  return {arbeit,teile,netto,steuer,brutto:netto+steuer,satz,modus:preisModus(a)};
+}
+function preisModus(a){
+  return (a && a.preisModus) || (daten.settings && daten.settings.preisModus) || 'netto';
 }
 function neueNummer(){
   const j = new Date().getFullYear();
@@ -345,6 +372,7 @@ async function holen(still){
     daten = Object.assign({version:1,auftraege:[]}, g);
     daten.settings = Object.assign({}, VORGABE, g.settings||{});
     daten.auftraege = Array.isArray(g.auftraege) ? g.auftraege : [];
+    migriereAW(daten);
     standDrive = await standLesen();
     await kontoErmitteln();
     lsSet('werkstatt-cache', JSON.stringify(daten));
@@ -743,6 +771,120 @@ async function bildVerkleinern(blob){
   return (klein && klein.size < blob.size) ? klein : blob;
 }
 
+/* ---------- Bild aufbereiten: zuschneiden und richtig drehen ---------- */
+
+function bildLaden(blob){
+  return new Promise((ok, fehl)=>{
+    const i = new Image();
+    const url = URL.createObjectURL(blob);
+    i.onload = ()=>{ URL.revokeObjectURL(url); ok(i); };
+    i.onerror = ()=>{ URL.revokeObjectURL(url); fehl(new Error('Bild konnte nicht gelesen werden')); };
+    i.src = url;
+  });
+}
+
+function alsBlob(leinwand, guete){
+  return new Promise(ok => leinwand.toBlob(ok, 'image/jpeg', guete || 0.88));
+}
+
+// Schneidet den Rand weg: sucht den Bereich mit den kraeftigen Kanten,
+// also den Schein selbst, und laesst die ruhige Umgebung fallen.
+async function bildZuschneiden(blob){
+  try{
+    const bild = await bildLaden(blob);
+    const probe = 1000;
+    const f = Math.min(1, probe / Math.max(bild.width, bild.height));
+    const w = Math.max(40, Math.round(bild.width * f));
+    const h = Math.max(40, Math.round(bild.height * f));
+
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d', {willReadFrequently:true});
+    ctx.drawImage(bild, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+
+    const grau = new Float32Array(w * h);
+    for(let i = 0, p = 0; p < grau.length; i += 4, p++)
+      grau[p] = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+
+    // Kantenstaerke je Spalte und Zeile zaehlen
+    const spalte = new Float32Array(w), zeile = new Float32Array(h);
+    for(let y = 1; y < h - 1; y++){
+      for(let x = 1; x < w - 1; x++){
+        const i = y * w + x;
+        const staerke = Math.abs(grau[i+1] - grau[i-1]) + Math.abs(grau[i+w] - grau[i-w]);
+        if(staerke > 26){ spalte[x]++; zeile[y]++; }
+      }
+    }
+
+    const grenzen = (werte, laenge)=>{
+      let hoch = 0;
+      for(let i = 0; i < laenge; i++) if(werte[i] > hoch) hoch = werte[i];
+      if(hoch < 3) return null;
+      const schwelle = hoch * 0.10;
+      let a = 0, b = laenge - 1;
+      while(a < laenge && werte[a] < schwelle) a++;
+      while(b > a && werte[b] < schwelle) b--;
+      return (b - a) > laenge * 0.25 ? [a, b] : null;
+    };
+
+    const gx = grenzen(spalte, w), gy = grenzen(zeile, h);
+    if(!gx || !gy) return blob;
+
+    // Etwas Rand stehen lassen, damit nichts abgeschnitten wird
+    const luft = 0.02;
+    const x0 = Math.max(0, (gx[0] / w - luft)) * bild.width;
+    const x1 = Math.min(1, (gx[1] / w + luft)) * bild.width;
+    const y0 = Math.max(0, (gy[0] / h - luft)) * bild.height;
+    const y1 = Math.min(1, (gy[1] / h + luft)) * bild.height;
+    const bw = Math.round(x1 - x0), bh = Math.round(y1 - y0);
+
+    // Nur zuschneiden, wenn es sich lohnt und genug uebrig bleibt
+    const anteil = (bw * bh) / (bild.width * bild.height);
+    if(anteil > 0.92 || anteil < 0.12) return blob;
+
+    const z = document.createElement('canvas');
+    z.width = bw; z.height = bh;
+    z.getContext('2d').drawImage(bild, Math.round(x0), Math.round(y0), bw, bh, 0, 0, bw, bh);
+    const neu = await alsBlob(z);
+    return neu || blob;
+  }catch(e){
+    return blob;   // im Zweifel das Bild unveraendert lassen
+  }
+}
+
+async function bildDrehen(blob, grad){
+  if(!grad) return blob;
+  const bild = await bildLaden(blob);
+  const quer = (grad === 90 || grad === 270);
+  const c = document.createElement('canvas');
+  c.width  = quer ? bild.height : bild.width;
+  c.height = quer ? bild.width  : bild.height;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width / 2, c.height / 2);
+  ctx.rotate(grad * Math.PI / 180);
+  ctx.drawImage(bild, -bild.width / 2, -bild.height / 2);
+  return (await alsBlob(c)) || blob;
+}
+
+// Wie sehr sieht der erkannte Text nach einem Fahrzeugschein aus?
+function scheinGuete(text){
+  const t = String(text || '');
+  if(t.trim().length < 20) return 0;
+  const merkmale = [
+    /zulassungsbescheinigung/i, /fahrzeugschein/i, /amtliches\s*kennz/i,
+    /anschrift/i, /firmenname/i, /vorname/i, /erstzulassung/i,
+    /\bC[.\s]?[1lIt|][.\s]?[1lIt|]\b/, /\bD[.\s]?[1lIt|]\b/, /\bD[.\s]?3\b/,
+    /\b[A-HJ-NPR-Z0-9]{17}\b/, /\b\d{2}\.\d{2}\.\d{4}\b/, /\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]{2,}/
+  ];
+  let punkte = merkmale.reduce((s, re)=> s + (re.test(t) ? 1 : 0), 0);
+  // Anteil sinnvoller Woerter
+  const woerter = t.match(/[A-Za-zÄÖÜäöüß]{4,}/g) || [];
+  if(woerter.length > 12) punkte += 1;
+  if(woerter.length > 30) punkte += 1;
+  return punkte;
+}
+
 async function scheinLesenDrive(datei){
   scheinFortschritt('Bild wird vorbereitet …', 0.1);
   const bild = await bildVerkleinern(datei);
@@ -778,15 +920,16 @@ async function scheinLesenDrive(datei){
 async function scheinLesen(quelle){
   try{
     scheinFortschritt('Bild wird geladen …', 0.02);
-    // quelle ist entweder eine Datei/Blob oder ein angehaengtes Bild-Objekt aus Drive
-    const datei = (quelle instanceof Blob) ? quelle : await (await fetch(await bildUrl(quelle))).blob();
+    const roh = (quelle instanceof Blob) ? quelle : await (await fetch(await bildUrl(quelle))).blob();
+
+    scheinFortschritt('Schein wird freigestellt …', 0.06);
+    const datei = await bildZuschneiden(roh);
 
     let text = '';
     if(scheinWeg() === 'drive'){
       try{
-        text = await scheinLesenDrive(datei);
+        text = await scheinLesenDreh(datei);
       }catch(eDrive){
-        // Ohne Netz oder Anmeldung: still auf die Browsererkennung ausweichen
         melden('Drive-Texterkennung nicht möglich (' + eDrive.message + ') – ich lese im Browser.', true);
         text = await scheinLesenBrowser(datei);
       }
@@ -798,6 +941,29 @@ async function scheinLesen(quelle){
     scheinSchliessen();
     melden(e.message || 'Texterkennung fehlgeschlagen', true);
   }
+}
+
+// Probiert die Lagen durch und nimmt die, in der der Text am meisten
+// nach einem Fahrzeugschein aussieht. Bricht ab, sobald es eindeutig ist.
+async function scheinLesenDreh(datei){
+  const lagen = [0, 90, 270, 180];
+  let bestes = {text:'', punkte:-1, grad:0};
+  for(let i = 0; i < lagen.length; i++){
+    const grad = lagen[i];
+    scheinFortschritt(grad ? 'Prüfe Lage ' + grad + '° …' : 'Bild wird gelesen …', 0.1 + i * 0.2);
+    let text = '';
+    try{
+      text = await scheinLesenDrive(await bildDrehen(datei, grad));
+    }catch(e){
+      if(i === 0) throw e;
+      continue;
+    }
+    const punkte = scheinGuete(text);
+    if(punkte > bestes.punkte) bestes = {text, punkte, grad};
+    if(punkte >= 6) break;
+  }
+  if(bestes.grad) melden('Bild war um ' + bestes.grad + '° gedreht – automatisch berichtigt.');
+  return bestes.text;
 }
 
 async function scheinLesenBrowser(datei){
@@ -1095,7 +1261,7 @@ function kundeName(k){
 }
 function leerAuftrag(){
   return {id:'m'+Date.now()+Math.random().toString(36).slice(2,6), nummer:neueNummer(), status:'angenommen',
-    angelegt:new Date().toISOString().slice(0,10), termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
+    angelegt:new Date().toISOString().slice(0,10), preisModus:(daten.settings && daten.settings.preisModus) || 'netto', termin:'', uhrAnnahme:'', fertig:'', uhrFertig:'', kalender:{}, bilder:[],
     kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:'',erstzulassung:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
@@ -1103,8 +1269,8 @@ function posZeile(art,p,i){
   const A = art==='arbeit';
   return `<div class="pos" data-art="${art}" data-i="${i}">
     <input class="feld" data-f="bez" placeholder="${A?'Arbeitsschritt':'Teil'}" value="${esc(p.bez)}">
-    <input class="feld" data-f="${A?'std':'menge'}" type="number" inputmode="decimal" step="${A?'0.25':'1'}" placeholder="${A?'Std':'Anz'}" value="${esc(A?p.std:p.menge)}">
-    <input class="feld" data-f="${A?'satz':'preis'}" type="number" inputmode="decimal" step="0.01" placeholder="€" value="${esc(A?p.satz:p.preis)}">
+    <input class="feld" data-f="${A?'aw':'menge'}" type="number" inputmode="decimal" step="1" placeholder="${A?'AW':'Anz'}" value="${esc(A?p.aw:p.menge)}">
+    <input class="feld" data-f="${A?'satz':'preis'}" type="number" inputmode="decimal" step="0.01" placeholder="${A?'€/AW':'€'}" value="${esc(A?p.satz:p.preis)}">
     <button class="weg" data-weg="${art}:${i}" aria-label="Entfernen">✕</button></div>`;
 }
 function editor(id){
@@ -1189,6 +1355,13 @@ function zeichne(){
     ${a.teile.map((p,i)=>posZeile('teile',p,i)).join('')}
     <button class="plus" data-plus="teile">+ Teil</button></fieldset>
   <div class="summen">
+    <div style="border:0;padding-bottom:6px">
+      <span>Beträge sind</span>
+      <select class="feld" id="fPreisModus" style="width:auto;padding:4px 8px">
+        <option value="netto" ${preisModus(a)==='netto'?'selected':''}>Netto</option>
+        <option value="brutto" ${preisModus(a)==='brutto'?'selected':''}>Brutto</option>
+      </select>
+    </div>
     <div><span>Arbeit</span><span>${eur(s.arbeit)}</span></div>
     <div><span>Teile</span><span>${eur(s.teile)}</span></div>
     ${s.satz?`<div><span>zzgl. ${s.satz} % USt</span><span>${eur(s.steuer)}</span></div>`:`<div><span>ohne USt (§ 19)</span><span>–</span></div>`}
@@ -1202,7 +1375,7 @@ function zeichne(){
   i.querySelectorAll('[data-st]').forEach(b=> b.onclick = ()=>{ uebernehmen(); entwurf.status = b.dataset.st; zeichne(); });
   i.querySelectorAll('[data-plus]').forEach(b=> b.onclick = ()=>{
     uebernehmen();
-    if(b.dataset.plus==='arbeit') entwurf.arbeit.push({bez:'',std:'',satz:daten.settings.stundensatz});
+    if(b.dataset.plus==='arbeit') entwurf.arbeit.push({bez:'',aw:'',satz:daten.settings.aw});
     else entwurf.teile.push({bez:'',menge:1,preis:''});
     zeichne();
   });
@@ -1228,6 +1401,8 @@ function zeichne(){
   document.getElementById('fotoWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
   document.getElementById('bildWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
   document.getElementById('btnSchein').onclick = ()=> scheinBildWaehlen();
+  const pm = document.getElementById('fPreisModus');
+  if(pm) pm.onchange = ()=>{ uebernehmen(); zeichne(); };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
   const d = document.getElementById('btnLoeschen');
   if(d) d.onclick = async ()=>{
@@ -1281,6 +1456,7 @@ function uebernehmen(){
   const kv = v('kVor').trim(), kn = v('kNach').trim();
   entwurf.kunde = {vorname:kv, nachname:kn, name:[kv,kn].filter(Boolean).join(' '),
                    telefon:v('kTel'), email:v('kMail'), strasse:v('kStr'), plz:v('kPlz'), ort:v('kOrt')};
+  entwurf.preisModus = v('fPreisModus') || 'netto';
   entwurf.fahrzeug = {marke:v('fMarke'), modell:v('fModell'), kennzeichen:v('fKennz').toUpperCase(),
                       fin:v('fFin').toUpperCase(), km:v('fKm'), erstzulassung:v('fErstzul')};
   entwurf.anliegen = v('fAnliegen'); entwurf.notiz = v('fNotiz');
@@ -1291,7 +1467,7 @@ function uebernehmen(){
 }
 async function speichernAuftrag(){
   uebernehmen();
-  entwurf.arbeit = entwurf.arbeit.filter(p=>p.bez||z(p.std));
+  entwurf.arbeit = entwurf.arbeit.filter(p=>p.bez||z(p.aw));
   entwurf.teile = entwurf.teile.filter(p=>p.bez||z(p.preis));
   if(!entwurf.kunde.name && !entwurf.fahrzeug.kennzeichen && !entwurf.anliegen){
     melden('Mindestens Kunde, Kennzeichen oder Auftragsumfang ausfüllen.', true); return;
@@ -1308,7 +1484,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-09 / 36';
+const APPVERSION = '2026-08-10 / 38';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
@@ -1333,12 +1509,18 @@ function setup(){
     <p class="notiz">Erscheint auf dem Auftragszettel am Rechner. Wird zusammen mit den Aufträgen in Drive gespeichert.</p>
     <label for="cBetrieb">Betrieb, Anschrift, Kontakt</label>
     <textarea class="feld" id="cBetrieb" rows="4">${esc(daten.settings.betrieb || VORGABE.betrieb)}</textarea>
-    <label for="cStd">Stundensatz (€)</label>
-    <input class="feld" id="cStd" type="number" step="0.5" value="${esc(daten.settings.stundensatz)}">
+    <label for="cStd">Arbeitswert AW (€)</label>
+    <input class="feld" id="cStd" type="number" step="0.05" value="${esc(daten.settings.aw !== undefined ? daten.settings.aw : 9.60)}">
+    <p class="notiz">1 AW = ein Zehntel Stunde (6 Minuten). Bei ${eur(z(daten.settings.aw||0))} je AW sind das ${eur(z(daten.settings.aw||0)*10)} je Stunde.</p>
     <label for="cUst">Umsatzsteuer</label>
     <select class="feld" id="cUst">
       <option value="0" ${!daten.settings.kleinunternehmer?'selected':''}>Regelbesteuerung – USt ausweisen</option>
       <option value="1" ${daten.settings.kleinunternehmer?'selected':''}>Kleinunternehmer § 19 UStG</option>
+    </select>
+    <label class="notiz" for="sPreisModus">Preiseingabe für neue Aufträge</label>
+    <select class="feld" id="sPreisModus">
+      <option value="netto" ${(daten.settings.preisModus||'netto')==='netto'?'selected':''}>Netto – zzgl. USt</option>
+      <option value="brutto" ${daten.settings.preisModus==='brutto'?'selected':''}>Brutto – inkl. USt</option>
     </select>
     <button class="k2" id="btnBetriebSpeichern">Betriebsdaten speichern</button>
   </fieldset>
@@ -1377,7 +1559,8 @@ function setup(){
   };
   document.getElementById('btnBetriebSpeichern').onclick = async ()=>{
     daten.settings.betrieb = document.getElementById('cBetrieb').value;
-    daten.settings.stundensatz = parseFloat(String(document.getElementById('cStd').value).replace(',','.')) || VORGABE.stundensatz;
+    daten.settings.aw = parseFloat(String(document.getElementById('cStd').value).replace(',','.')) || VORGABE.aw;
+    daten.settings.stundensatz = Math.round(daten.settings.aw * 10 * 100) / 100;
     daten.settings.kleinunternehmer = document.getElementById('cUst').value === '1';
     await sichern(); render();
   };
@@ -1417,7 +1600,7 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && datei
 
 (function start(){
   try{ const c = JSON.parse(lsGet('werkstatt-cfg')||'null'); if(c) cfg = Object.assign(cfg,c); }catch(e){}
-  try{ const c = JSON.parse(lsGet('werkstatt-cache')||'null'); if(c && c.auftraege){ daten = c; daten.settings = Object.assign({},VORGABE,c.settings||{}); } }catch(e){}
+  try{ const c = JSON.parse(lsGet('werkstatt-cache')||'null'); if(c && c.auftraege){ daten = c; daten.settings = Object.assign({},VORGABE,c.settings||{}); migriereAW(daten); } }catch(e){}
   render();
   if(!cfg.clientId){ zustand('aus','Einrichtung nötig – auf Konto tippen'); return; }
   if(tokenHolenAusSpeicher()){ zustand('laeuft','Angemeldet – lade …'); holen(true); return; }
