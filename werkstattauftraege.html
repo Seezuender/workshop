@@ -256,10 +256,12 @@
   .feld:focus{background:#fff;border-color:var(--stahl)}
   textarea.feld{min-height:70px;resize:vertical}
 
-  .pos{display:grid;grid-template-columns:1fr 74px 84px 34px;gap:7px;align-items:start;margin-bottom:7px}
+  .pos{display:grid;grid-template-columns:1fr 96px 64px 88px 86px 34px;gap:7px;align-items:start;margin-bottom:7px}
   .pos .feld{margin-bottom:0}
+  .pos .summe{padding:9px 4px 0 0;text-align:right;font-variant-numeric:tabular-nums;font-size:13px}
+  .pos .feld[readonly]{background:#EEF2F5;color:var(--stahl)}
   .pos-kopf{
-    display:grid;grid-template-columns:1fr 74px 84px 34px;gap:7px;
+    display:grid;grid-template-columns:1fr 96px 64px 88px 86px 34px;gap:7px;
     font-size:11px;color:var(--stahl);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;
   }
   .weg{
@@ -327,7 +329,7 @@
   @media (max-width:520px){
     .liste{grid-template-columns:1fr;padding:12px}
     .kopf h1{font-size:17px;letter-spacing:.1em}
-    .pos,.pos-kopf{grid-template-columns:1fr 62px 74px 34px}
+    .pos,.pos-kopf{grid-template-columns:1fr 84px 54px 76px 74px 34px}
   }
 </style>
 </head>
@@ -377,7 +379,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-10 / 46';
+const VERSION = '2026-08-10 / 47';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -447,7 +449,9 @@ function migriereAW(d){
     d.settings.aw = std ? Math.round((std / 10) * 100) / 100 : VORGABE.aw;
   }
   (d.auftraege || []).forEach(a =>{
+    (a.teile || []).forEach(p =>{ if(!p.einheit) p.einheit = 'stk'; });
     (a.arbeit || []).forEach(p =>{
+      if(!p.einheit) p.einheit = 'aw';
       if(p.aw === undefined && p.std !== undefined){
         p.aw = z(p.std) ? Math.round(z(p.std) * 10 * 100) / 100 : '';
         p.satz = z(p.satz) ? Math.round((z(p.satz) / 10) * 100) / 100 : d.settings.aw;
@@ -822,14 +826,16 @@ function lexPositionen(a){
   (a.arbeit||[]).forEach(x=>{
     const anzahl = Number(x.aw)||0, preis = Number(x.satz)||satz;
     if(!anzahl && !preis) return;
-    pos.push({art:'arbeit', bez: x.bez || 'Arbeitszeit', menge: anzahl, einheit:'AW',
+    pos.push({art:'arbeit', bez: x.bez || 'Arbeitszeit', menge: anzahl,
+              einheit: posEinheit('arbeit',x)==='pauschal' ? 'Pauschale' : 'AW',
               einzelNetto: netto(preis), ustSatz: ust});
   });
   (a.teile||[]).forEach(x=>{
     const menge = Number(x.menge)||0;
     const preis = Number(x.preis !== undefined ? x.preis : x.einzel)||0;   // Feld heißt preis
     if(!menge && !preis) return;
-    pos.push({art:'teil', bez: x.bez || 'Teil', menge: menge, einheit:'Stück',
+    pos.push({art:'teil', bez: x.bez || 'Teil', menge: menge,
+              einheit: posEinheit('teile',x)==='pauschal' ? 'Pauschale' : 'Stück',
               einzelNetto: netto(preis), ustSatz: ust});
   });
   return pos;
@@ -2029,18 +2035,37 @@ function leerAuftrag(){
     kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''},
     fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:'',erstzulassung:''},
     anliegen:'', notiz:'',
-    arbeit:[{bez:'',aw:'',satz:daten.settings.aw}],
+    arbeit:[{bez:'',einheit:'aw',aw:'',satz:daten.settings.aw}],
     teile:[]
   };
 }
 let entwurf = null;
 
+function posEinheit(art, p){
+  if(p && p.einheit) return p.einheit;
+  return art === 'arbeit' ? 'aw' : 'stk';
+}
 function posZeile(art, p, i){
   const istArbeit = art === 'arbeit';
+  const einheit = posEinheit(art, p);
+  const pausch = einheit === 'pauschal';
+  const anzFeld = istArbeit ? 'aw' : 'menge';
+  const preisFeld = istArbeit ? 'satz' : 'preis';
+  const anzahl = pausch ? 1 : (istArbeit ? p.aw : p.menge);
+  const einzel = istArbeit ? p.satz : p.preis;
   return `<div class="pos" data-art="${art}" data-i="${i}">
     <input class="feld" data-f="bez" placeholder="${istArbeit?'Arbeitsschritt':'Teil / Material'}" value="${esc(p.bez)}">
-    <input class="feld" data-f="${istArbeit?'aw':'menge'}" type="number" step="${istArbeit?'1':'1'}" inputmode="decimal" placeholder="${istArbeit?'AW':'Anz'}" value="${esc(istArbeit?p.aw:p.menge)}">
-    <input class="feld" data-f="${istArbeit?'satz':'preis'}" type="number" step="0.01" inputmode="decimal" placeholder="${istArbeit?'€/AW':'€'}" value="${esc(istArbeit?p.satz:p.preis)}">
+    <select class="feld" data-f="einheit">
+      ${istArbeit
+        ? `<option value="aw" ${einheit==='aw'?'selected':''}>AW</option>`
+        : `<option value="stk" ${einheit==='stk'?'selected':''}>Stück</option>`}
+      <option value="pauschal" ${pausch?'selected':''}>Pauschale</option>
+    </select>
+    <input class="feld" data-f="${anzFeld}" type="number" step="1" inputmode="decimal" placeholder="Anzahl"
+           value="${esc(anzahl)}" ${pausch?'readonly':''}>
+    <input class="feld" data-f="${preisFeld}" type="number" step="0.01" inputmode="decimal"
+           placeholder="${pausch?'Betrag €':(istArbeit?'€/AW':'€')}" value="${esc(einzel)}">
+    <span class="summe">${eur(z(anzahl)*z(einzel))}</span>
     <button class="weg" data-weg="${art}:${i}" title="Position entfernen" aria-label="Position entfernen">✕</button>
   </div>`;
 }
@@ -2134,13 +2159,13 @@ function zeichneEditor(){
       Drive-Ordner (Unterordner <b>Bilder</b>), sieht die Handy-App dieselben Aufnahmen.</p>
   </fieldset>
   <fieldset><legend>Arbeitszeit</legend>
-    <div class="pos-kopf"><span>Arbeitsschritt</span><span>Std</span><span>€/Std</span><span></span></div>
+    <div class="pos-kopf"><span>Arbeitsschritt</span><span>Einheit</span><span>Anzahl</span><span>Einzel €</span><span style="text-align:right">Summe</span><span></span></div>
     <div id="listeArbeit">${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}</div>
     <button class="plus" data-plus="arbeit">+ Arbeitsposition</button>
   </fieldset>
 
   <fieldset><legend>Teile & Material</legend>
-    <div class="pos-kopf"><span>Bezeichnung</span><span>Anzahl</span><span>Einzel €</span><span></span></div>
+    <div class="pos-kopf"><span>Bezeichnung</span><span>Einheit</span><span>Anzahl</span><span>Einzel €</span><span style="text-align:right">Summe</span><span></span></div>
     <div id="listeTeile">${a.teile.map((p,i)=>posZeile('teile',p,i)).join('')}</div>
     <button class="plus" data-plus="teile">+ Teileposition</button>
   </fieldset>
@@ -2171,8 +2196,8 @@ function zeichneEditor(){
   const inh = document.getElementById('blattInhalt');
   inh.querySelectorAll('[data-plus]').forEach(b => b.onclick = ()=>{
     uebernehmen();
-    if(b.dataset.plus === 'arbeit') entwurf.arbeit.push({bez:'',aw:'',satz:daten.settings.aw});
-    else entwurf.teile.push({bez:'',menge:1,preis:''});
+    if(b.dataset.plus === 'arbeit') entwurf.arbeit.push({bez:'',einheit:'aw',aw:'',satz:daten.settings.aw});
+    else entwurf.teile.push({bez:'',einheit:'stk',menge:1,preis:''});
     zeichneEditor();
   });
   inh.querySelectorAll('[data-weg]').forEach(b => b.onclick = ()=>{
@@ -2282,6 +2307,10 @@ function uebernehmen(){
   document.querySelectorAll('#blattInhalt .pos').forEach(p=>{
     const art = p.dataset.art, i = parseInt(p.dataset.i,10);
     p.querySelectorAll('.feld').forEach(f => { entwurf[art][i][f.dataset.f] = f.value; });
+    const zeile = entwurf[art][i];
+    if(zeile.einheit === 'pauschal'){                 // Pauschale: immer einmal
+      if(art === 'arbeit') zeile.aw = 1; else zeile.menge = 1;
+    }
   });
 }
 
@@ -2535,7 +2564,7 @@ function drucken(a){
   const s = summen(a);
   const pos = (t, rows) => rows.length ? `<h3>${t}</h3><table><tr><th>Position</th><th class="r">Menge</th><th class="r">Einzel</th><th class="r">Summe</th></tr>${rows.join('')}</table>` : '';
   const arbeit = (a.arbeit||[]).filter(p=>p.bez||z(p.aw)).map(p=>
-    `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.aw).toLocaleString('de-DE')} AW</td><td class="r">${eur(z(p.satz))}</td><td class="r">${eur(z(p.aw)*z(p.satz))}</td></tr>`);
+    `<tr><td>${esc(p.bez)}</td><td class="r">${posEinheit('arbeit',p)==='pauschal' ? 'Pauschale' : z(p.aw).toLocaleString('de-DE')+' AW'}</td><td class="r">${eur(z(p.satz))}</td><td class="r">${eur(z(p.aw)*z(p.satz))}</td></tr>`);
   const teile = (a.teile||[]).filter(p=>p.bez||z(p.preis)).map(p=>
     `<tr><td>${esc(p.bez)}</td><td class="r">${z(p.menge).toLocaleString('de-DE')}</td><td class="r">${eur(z(p.preis))}</td><td class="r">${eur(z(p.menge)*z(p.preis))}</td></tr>`);
   // Betriebsangaben: erste Zeile ist der Name, der Rest die Anschrift

@@ -104,10 +104,17 @@
                      font-size:12px;color:var(--stahl)}
   .statuswahl button[aria-pressed="true"]{background:var(--tinte);border-color:var(--tinte);color:#fff}
 
-  .pos{display:grid;grid-template-columns:1fr 58px 70px 34px;gap:6px;margin-bottom:6px}
+  .pos{display:grid;grid-template-columns:1fr 76px 34px;grid-template-areas:'bez bez weg' 'einheit anzahl weg' 'preis summe weg';
+       gap:6px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed var(--kante)}
+  .pos [data-f="bez"]{grid-area:bez}
+  .pos [data-f="einheit"]{grid-area:einheit}
+  .pos .anzahl{grid-area:anzahl}
+  .pos .einzel{grid-area:preis}
+  .pos .summe{grid-area:summe;align-self:center;text-align:right;font-variant-numeric:tabular-nums;font-size:13px}
+  .pos .weg{grid-area:weg;align-self:start}
+  .pos .feld[readonly]{background:#EEF2F5;color:var(--stahl)}
   .pos .feld{margin-bottom:0;padding:9px 7px}
-  .pos-kopf{display:grid;grid-template-columns:1fr 58px 70px 34px;gap:6px;font-size:11px;color:var(--stahl);
-            text-transform:uppercase;margin-bottom:4px}
+  .pos-kopf{font-size:11px;color:var(--stahl);text-transform:uppercase;margin-bottom:6px}
   .weg{border:1px solid var(--kante);background:#fff;border-radius:var(--radius);color:var(--stahl)}
   .plus{background:#fff;border:1px dashed var(--kante);border-radius:var(--radius);padding:8px 12px;
         color:var(--stahl);font-size:13px}
@@ -240,7 +247,9 @@ function migriereAW(d){
     d.settings.aw = std ? Math.round((std / 10) * 100) / 100 : VORGABE.aw;
   }
   (d.auftraege || []).forEach(a =>{
+    (a.teile || []).forEach(p =>{ if(!p.einheit) p.einheit = 'stk'; });
     (a.arbeit || []).forEach(p =>{
+      if(!p.einheit) p.einheit = 'aw';
       if(p.aw === undefined && p.std !== undefined){
         p.aw = z(p.std) ? Math.round(z(p.std) * 10 * 100) / 100 : '';
         p.satz = z(p.satz) ? Math.round((z(p.satz) / 10) * 100) / 100 : d.settings.aw;
@@ -1265,12 +1274,28 @@ function leerAuftrag(){
     kunde:{vorname:'',nachname:'',name:'',telefon:'',email:'',strasse:'',plz:'',ort:''}, fahrzeug:{marke:'',modell:'',kennzeichen:'',fin:'',km:'',erstzulassung:''},
     anliegen:'', notiz:'', arbeit:[], teile:[]};
 }
+function posEinheit(art, p){
+  if(p && p.einheit) return p.einheit;
+  return art === 'arbeit' ? 'aw' : 'stk';
+}
 function posZeile(art,p,i){
   const A = art==='arbeit';
+  const einheit = posEinheit(art, p);
+  const pausch = einheit === 'pauschal';
+  const anzahl = pausch ? 1 : (A ? p.aw : p.menge);
+  const einzel = A ? p.satz : p.preis;
   return `<div class="pos" data-art="${art}" data-i="${i}">
     <input class="feld" data-f="bez" placeholder="${A?'Arbeitsschritt':'Teil'}" value="${esc(p.bez)}">
-    <input class="feld" data-f="${A?'aw':'menge'}" type="number" inputmode="decimal" step="1" placeholder="${A?'AW':'Anz'}" value="${esc(A?p.aw:p.menge)}">
-    <input class="feld" data-f="${A?'satz':'preis'}" type="number" inputmode="decimal" step="0.01" placeholder="${A?'€/AW':'€'}" value="${esc(A?p.satz:p.preis)}">
+    <select class="feld" data-f="einheit">
+      ${A ? `<option value="aw" ${einheit==='aw'?'selected':''}>AW</option>`
+          : `<option value="stk" ${einheit==='stk'?'selected':''}>Stück</option>`}
+      <option value="pauschal" ${pausch?'selected':''}>Pauschale</option>
+    </select>
+    <input class="feld anzahl" data-f="${A?'aw':'menge'}" type="number" inputmode="decimal" step="1"
+           placeholder="Anzahl" value="${esc(anzahl)}" ${pausch?'readonly':''}>
+    <input class="feld einzel" data-f="${A?'satz':'preis'}" type="number" inputmode="decimal" step="0.01"
+           placeholder="${pausch?'Betrag €':(A?'€/AW':'€')}" value="${esc(einzel)}">
+    <span class="summe">${eur(z(anzahl)*z(einzel))}</span>
     <button class="weg" data-weg="${art}:${i}" aria-label="Entfernen">✕</button></div>`;
 }
 function editor(id){
@@ -1347,11 +1372,11 @@ function zeichne(){
     <p class="notiz" style="margin-top:6px">Die Bilder liegen im Ordner <b>Bilder</b> neben der Auftragsdatei in Drive und sind auch am Rechner sichtbar.</p>
   </fieldset>
   <fieldset><legend>Arbeitszeit</legend>
-    <div class="pos-kopf"><span>Schritt</span><span>Std</span><span>€/Std</span><span></span></div>
+    <div class="pos-kopf">Arbeitsschritt · Einheit · Anzahl · Einzel € · Summe</div>
     ${a.arbeit.map((p,i)=>posZeile('arbeit',p,i)).join('')}
     <button class="plus" data-plus="arbeit">+ Arbeit</button></fieldset>
   <fieldset><legend>Teile</legend>
-    <div class="pos-kopf"><span>Bezeichnung</span><span>Anz</span><span>Einzel €</span><span></span></div>
+    <div class="pos-kopf">Bezeichnung · Einheit · Anzahl · Einzel € · Summe</div>
     ${a.teile.map((p,i)=>posZeile('teile',p,i)).join('')}
     <button class="plus" data-plus="teile">+ Teil</button></fieldset>
   <div class="summen">
@@ -1375,8 +1400,8 @@ function zeichne(){
   i.querySelectorAll('[data-st]').forEach(b=> b.onclick = ()=>{ uebernehmen(); entwurf.status = b.dataset.st; zeichne(); });
   i.querySelectorAll('[data-plus]').forEach(b=> b.onclick = ()=>{
     uebernehmen();
-    if(b.dataset.plus==='arbeit') entwurf.arbeit.push({bez:'',aw:'',satz:daten.settings.aw});
-    else entwurf.teile.push({bez:'',menge:1,preis:''});
+    if(b.dataset.plus==='arbeit') entwurf.arbeit.push({bez:'',einheit:'aw',aw:'',satz:daten.settings.aw});
+    else entwurf.teile.push({bez:'',einheit:'stk',menge:1,preis:''});
     zeichne();
   });
   i.querySelectorAll('[data-weg]').forEach(b=> b.onclick = ()=>{
@@ -1463,6 +1488,8 @@ function uebernehmen(){
   document.querySelectorAll('#blattInhalt .pos').forEach(p=>{
     const art = p.dataset.art, n = +p.dataset.i;
     p.querySelectorAll('.feld').forEach(f=> entwurf[art][n][f.dataset.f] = f.value);
+    const zeile = entwurf[art][n];
+    if(zeile.einheit === 'pauschal'){ if(art === 'arbeit') zeile.aw = 1; else zeile.menge = 1; }
   });
 }
 async function speichernAuftrag(){
@@ -1484,7 +1511,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-10 / 38';
+const APPVERSION = '2026-08-10 / 39';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
