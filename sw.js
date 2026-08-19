@@ -1,6 +1,6 @@
 /* Service Worker: haelt die Oberflaeche offline verfuegbar.
    Auftragsdaten kommen immer frisch aus Google Drive, werden also nie zwischengespeichert. */
-const CACHE = 'werkstatt-v42';
+const CACHE = 'werkstatt-v43';
 const HUELLE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -14,8 +14,13 @@ self.addEventListener('fetch', e => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   if (u.hostname.endsWith('googleapis.com') || u.hostname.endsWith('google.com')) return;
+  // Eigene Dateien immer frisch holen – sonst liefert der Browser-Zwischen-
+  // speicher (bei GitHub Pages rund 10 Minuten) noch die alte Fassung aus.
+  const anfrage = (u.origin === location.origin)
+    ? new Request(e.request, {cache: 'no-store'})
+    : e.request;
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(anfrage).then(r => {
       if (u.origin === location.origin) {
         const kopie = r.clone();
         caches.open(CACHE).then(c => c.put(e.request, kopie));

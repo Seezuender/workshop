@@ -413,7 +413,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-19 / 50';
+const VERSION = '2026-08-19 / 51';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -2667,7 +2667,7 @@ function einstellungen(){
       die Anmeldung – dann das Tool über die Web-Adresse oder den Starter aufrufen.</p>
   </fieldset>
   <fieldset><legend>Sicherung & Export</legend>
-    <p class="notiz">Die CSV-Datei ist für Buchhaltung und Rechnungsstellung gedacht, die JSON-Datei als vollständige Sicherung.</p>
+    <p class="notiz">Die CSV-Datei enthält genau die Spalten, die in der Listenansicht ausgewählt sind. Die JSON-Datei ist die vollständige Sicherung.</p>
     <button class="k2" id="btnJson">JSON-Sicherung laden</button>
     <button class="k2" id="btnImportPlus">Aufträge hinzufügen</button>
     <button class="k2" id="btnImport">Sicherung einlesen (ersetzt alles)</button>
@@ -2795,18 +2795,35 @@ function exportJson(){
   melden('Sicherung geladen');
 }
 function exportCsv(){
-  const k = ['Auftragsnummer','Angelegt','Annahme','Uhrzeit Annahme','Fertigstellung','Uhrzeit Fertigstellung','Status','Kunde','Telefon','E-Mail','Marke','Modell','Kennzeichen','FIN','km','Auftragsumfang','Arbeitszeit netto','Teile netto','Netto','USt','Gesamt'];
+  // Es werden genau die Spalten ausgegeben, die in der Listenansicht
+  // ausgewählt sind – in derselben Reihenfolge und Sortierung.
+  const genutzt = sichtbareSpalten();
+  if(!genutzt.length){ melden('Keine Spalten ausgewählt – bitte in der Listenansicht festlegen.', true); return; }
+
   const q = v => '"' + String(v==null?'':v).replace(/"/g,'""').replace(/\r?\n/g,' ') + '"';
-  const num = n => n.toFixed(2).replace('.',',');
-  const zeilen = daten.auftraege.map(a=>{
-    const s = summen(a);
-    return [a.nummer,a.angelegt,a.termin,a.uhrAnnahme||'',a.fertig||'',a.uhrFertig||'',statusLabel(a.status),a.kunde?.name,a.kunde?.telefon,a.kunde?.email,
-      a.fahrzeug?.marke,a.fahrzeug?.modell,a.fahrzeug?.kennzeichen,a.fahrzeug?.fin,a.fahrzeug?.km,a.anliegen,
-      num(s.arbeit),num(s.teile),num(s.netto),num(s.steuer),num(s.brutto)].map(q).join(';');
-  });
+  // Währungszeichen und geschützte Leerzeichen raus, damit Excel rechnen kann
+  const sauber = v => String(v==null?'':v).replace(/\u00a0/g,' ').replace(/\s*€/g,'').trim();
+  const wertVon = (sp, a) => {
+    if(sp.id === 'status') return statusLabel(a.status);
+    if(typeof sp.wert === 'function') return sauber(sp.wert(a));
+    if(typeof sp.roh === 'function') return sauber(String(sp.roh(a)).replace(/<[^>]*>/g,''));
+    return '';
+  };
+
+  const liste = daten.auftraege.slice();
+  const sp = SPALTEN.find(x => x.id === sortierung.feld);
+  if(sp && typeof sp.sort === 'function'){
+    liste.sort((a,b)=>{
+      const A = sp.sort(a), B = sp.sort(b);
+      return (A > B ? 1 : A < B ? -1 : 0) * (sortierung.richtung || 1);
+    });
+  }
+
+  const kopf = genutzt.map(s => q(s.label)).join(';');
+  const zeilen = liste.map(a => genutzt.map(s => q(wertVon(s, a))).join(';'));
   download('werkstattauftraege-'+new Date().toISOString().slice(0,10)+'.csv',
-    '\ufeff' + [k.map(q).join(';')].concat(zeilen).join('\r\n'), 'text/csv;charset=utf-8');
-  melden('CSV geladen');
+    '\ufeff' + [kopf].concat(zeilen).join('\r\n'), 'text/csv;charset=utf-8');
+  melden(genutzt.length + ' Spalten, ' + zeilen.length + ' Aufträge als CSV geladen');
 }
 
 /* ---------- Auftragszettel drucken ---------- */

@@ -1761,7 +1761,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-19 / 42';
+const APPVERSION = '2026-08-19 / 43';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
@@ -1817,6 +1817,7 @@ function setup(){
       : 'Zurzeit nicht angemeldet.'}</p>
     <p class="notiz">App-Fassung <b>${APPVERSION}</b></p>
     <button class="k2" id="btnNeuLaden">Vom Drive neu laden</button>
+    <button class="k2" id="btnAppFrisch" style="margin-top:8px">App aktualisieren</button>
     <button class="k2" id="btnAbmelden" style="margin-top:8px">Abmelden</button>
   </fieldset>
   <div class="aktionen"><button class="k2 k2-haupt" id="btnFertig">Fertig</button></div>`;
@@ -1841,6 +1842,7 @@ function setup(){
     daten.settings.kleinunternehmer = document.getElementById('cUst').value === '1';
     await sichern(); render();
   };
+  document.getElementById('btnAppFrisch').onclick = appAuffrischen;
   document.getElementById('btnNeuLaden').onclick = async ()=>{ dateiId = null; await holen(); zurueck(); };
   document.getElementById('btnAbmelden').onclick = ()=>{
     tokenVerwerfen(); dateiId = null;
@@ -1898,7 +1900,35 @@ if(/[?&]diktat=1/.test(location.search)){
   setTimeout(()=>{ editor(null); diktatOeffnen('anliegen'); }, 400);
 }
 
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+/* ---------- Aktualisierung der App ---------- */
+let neuGeladen = false;
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg =>{
+    reg.update();                                   // beim Start nachsehen
+    setInterval(()=> reg.update(), 60*60*1000);      // und stündlich
+  }).catch(()=>{});
+  // Übernimmt eine neue Fassung, wird einmal neu geladen
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(neuGeladen) return;
+    neuGeladen = true;
+    location.reload();
+  });
+}
+
+async function appAuffrischen(){
+  melden('Suche nach einer neuen Fassung …');
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if(window.caches){
+      const namen = await caches.keys();
+      await Promise.all(namen.map(n => caches.delete(n)));
+    }
+  }catch(e){}
+  location.replace(location.pathname + '?frisch=' + Date.now());
+}
 </script>
 </body>
 </html>
