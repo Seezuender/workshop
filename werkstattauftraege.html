@@ -413,7 +413,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-19 / 48';
+const VERSION = '2026-08-19 / 49';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1679,7 +1679,7 @@ function scheinPruefen(g){
 
 
 /* ---------- Freisprechmodus: diktieren ohne Anfassen ---------- */
-let hoerer = null, hoertZu = false, diktatZiel = 'anliegen', diktatWach = null;
+let hoerer = null, hoertZu = false, diktatZiel = 'anliegen', diktatWach = null, diktatBlockOffen = false;
 
 function spracheDa(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
 
@@ -1707,7 +1707,7 @@ function diktatBefehl(satz){
     diktatZiel = 'anliegen'; diktatAnzeigen(); melden('Diktat: Auftragsumfang'); return true;
   }
   if(/^((interne )?notiz|befund)$/.test(s)){
-    diktatZiel = 'notiz'; diktatAnzeigen(); melden('Diktat: Interne Notiz'); return true;
+    diktatZiel = 'notiz'; diktatBlockOffen = false; diktatAnzeigen(); melden('Diktat: Interne Notiz'); return true;
   }
   if(/^(neuer auftrag|nächster auftrag|naechster auftrag)$/.test(s)){
     diktatNeu(); return true;
@@ -1727,11 +1727,23 @@ function diktatBefehl(satz){
   return false;
 }
 
+function heuteKurz(){
+  return new Date().toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+
 function diktatSchreiben(satz){
   const rein = satz.trim().replace(/^\w/, c => c.toUpperCase());
   if(!rein) return;
   const bisher = entwurf[diktatZiel] || '';
-  entwurf[diktatZiel] = (bisher ? bisher.replace(/\s*$/,'') + ' ' : '') + rein + (/[.!?]$/.test(rein) ? '' : '.');
+  const punkt = rein + (/[.!?]$/.test(rein) ? '' : '.');
+
+  // Jedes Diktat in die Notiz beginnt eine neue Zeile mit dem Tagesdatum
+  if(diktatZiel === 'notiz' && !diktatBlockOffen){
+    entwurf.notiz = (bisher ? bisher.replace(/\s*$/,'') + '\n' : '') + heuteKurz() + ': ' + punkt;
+    diktatBlockOffen = true;
+  }else{
+    entwurf[diktatZiel] = (bisher ? bisher.replace(/\s*$/,'') + ' ' : '') + punkt;
+  }
   diktatAnzeigen();
 }
 
@@ -1740,6 +1752,7 @@ async function diktatNeu(){
   editor(null);
   document.getElementById('diktat').hidden = false;   // Editor blendet das Fenster sonst aus
   diktatZiel = 'anliegen';
+  diktatBlockOffen = false;
   diktatAnzeigen();
   melden('Neuer Auftrag ' + entwurf.nummer);
 }
@@ -1829,6 +1842,7 @@ function diktatHoeren(){
 function diktatOeffnen(ziel){
   if(!entwurf) editor(null);
   diktatZiel = ziel || 'anliegen';
+  diktatBlockOffen = false;
   document.getElementById('diktat').hidden = false;
   diktatAnzeigen();
   diktatHoeren();
