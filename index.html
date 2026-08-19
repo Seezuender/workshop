@@ -1083,6 +1083,8 @@ function scheinPruefen(g){
 
 /* ---------- Freisprechmodus: diktieren ohne Anfassen ---------- */
 let hoerer = null, hoertZu = false, diktatZiel = 'anliegen', diktatWach = null, diktatBlockOffen = false;
+let finalsGeschrieben = 0, letzterSatz = '', letzterSatzZeit = 0;
+const istAndroid = /Android/i.test((navigator && navigator.userAgent) || '');
 
 function spracheDa(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
 
@@ -1128,6 +1130,19 @@ function diktatBefehl(satz){
     diktatAnzeigen(); melden('Letzter Satz entfernt'); return true;
   }
   return false;
+}
+
+// Ein fertig erkannter Satz: erst Befehl pruefen, sonst schreiben.
+// Wiederholt Android denselben Satz binnen weniger Sekunden, wird er verworfen.
+function diktatVerarbeiten(stueck){
+  const satz = String(stueck||'').trim();
+  if(!satz) return;
+  const schluessel = satz.toLowerCase().replace(/[.,!?]/g,'');
+  const jetzt = Date.now();
+  if(schluessel === letzterSatz && (jetzt - letzterSatzZeit) < 5000) return;
+  letzterSatz = schluessel;
+  letzterSatzZeit = jetzt;
+  if(!diktatBefehl(satz)) diktatSchreiben(satz);
 }
 
 function heuteKurz(){
@@ -1177,16 +1192,23 @@ function hoererBauen(){
   const Erkenner = window.SpeechRecognition || window.webkitSpeechRecognition;
   const r = new Erkenner();
   r.lang = 'de-DE';
-  r.continuous = true;
+  // Auf Android ist der Dauerbetrieb unzuverlaessig – dort wird nach jeder
+  // Aeusserung neu gestartet, das verhindert doppelte und erfundene Saetze.
+  r.continuous = !istAndroid;
   r.interimResults = true;
+  r.maxAlternatives = 1;
   r.onresult = e =>{
-    let vorlaeufig = '';
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      const stueck = e.results[i][0].transcript;
+    // Android liefert fertige Saetze mehrfach aus und faengt dabei wieder
+    // vorne an. Deshalb wird mitgezaehlt, was schon geschrieben wurde,
+    // statt auf resultIndex zu vertrauen.
+    let vorlaeufig = '', fertige = 0;
+    for(let i = 0; i < e.results.length; i++){
       if(e.results[i].isFinal){
-        if(!diktatBefehl(stueck)) diktatSchreiben(stueck);
-      }else vorlaeufig += stueck;
+        fertige++;
+        if(fertige > finalsGeschrieben) diktatVerarbeiten(e.results[i][0].transcript);
+      }else vorlaeufig += e.results[i][0].transcript;
     }
+    if(fertige > finalsGeschrieben) finalsGeschrieben = fertige;
     if(vorlaeufig) diktatAnzeigen(vorlaeufig);
   };
   r.onerror = e =>{
@@ -1203,6 +1225,7 @@ function hoererBauen(){
     else{ document.getElementById('diktat').classList.remove('hoert'); diktatStand(''); }
   };
   r.onstart = ()=>{
+    finalsGeschrieben = 0;              // neue Sitzung, Zaehlung beginnt von vorn
     document.getElementById('diktat').classList.add('hoert');
     diktatStand('hört zu');
     const g = document.getElementById('diktatGross');
@@ -1738,7 +1761,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-19 / 41';
+const APPVERSION = '2026-08-19 / 42';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
