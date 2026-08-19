@@ -167,6 +167,26 @@
   .scheinzeile .bez{width:104px;font-size:12px;color:var(--stahl);flex:none}
   .fortschritt{height:6px;background:#E3E9ED;border-radius:3px;overflow:hidden;margin:10px 0}
   .fortschritt div{height:100%;background:var(--oel);width:0%}
+
+  /* ---------- Freisprechmodus ---------- */
+  .diktat{position:fixed;inset:0;z-index:90;background:#0D1116;color:#F2F5F7;
+          display:flex;flex-direction:column;padding:14px}
+  .diktat[hidden]{display:none}
+  .diktat-kopf{display:flex;align-items:center;gap:10px;flex:none}
+  .diktat-punkt{width:14px;height:14px;border-radius:50%;background:#5A666F;flex:none}
+  .diktat.hoert .diktat-punkt{background:#D64525;animation:pulsen 1.2s ease-in-out infinite}
+  @keyframes pulsen{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(1.35)}}
+  .diktat-ziel{font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;font-size:13px;flex:1}
+  .diktat-text{flex:1;overflow-y:auto;margin:12px 0;font-size:17px;line-height:1.5;white-space:pre-wrap}
+  .diktat-text .vorlaeufig{opacity:.5}
+  .diktat-hinweis{font-size:12px;color:#9AA6AE;flex:none;line-height:1.5}
+  .diktat-tasten{display:flex;gap:8px;flex:none;margin-top:10px}
+  .diktat-tasten button{flex:1;padding:14px;border-radius:var(--radius);border:1px solid rgba(255,255,255,.3);
+                        background:rgba(255,255,255,.12);color:#fff;font-size:15px}
+  .diktat-tasten button.haupt{background:#D64525;border-color:#D64525}
+  .diktat-gross{margin:auto;text-align:center}
+  .diktat-gross button{padding:26px 34px;font-size:19px;border-radius:var(--radius);
+                       background:#D64525;color:#fff;border:0}
   .meldung{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(80px + env(safe-area-inset-bottom));
            z-index:60;background:var(--tinte);color:#fff;padding:9px 16px;border-radius:20px;font-size:13.5px;
            max-width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
@@ -211,6 +231,20 @@
 </section>
 
 <div class="scheinbox" id="scheinbox" hidden><div class="scheinblatt" id="scheinblatt"></div></div>
+<div class="diktat" id="diktat" hidden>
+  <div class="diktat-kopf">
+    <span class="diktat-punkt"></span>
+    <span class="diktat-ziel" id="diktatZiel">Auftragsumfang</span>
+    <span class="diktat-hinweis" id="diktatStand"></span>
+  </div>
+  <div class="diktat-text" id="diktatText"></div>
+  <p class="diktat-hinweis">Sprich einfach los. Gesprochene Befehle:
+    <b>Auftragsumfang</b> · <b>Notiz</b> · <b>neuer Auftrag</b> · <b>speichern</b> · <b>Ende</b></p>
+  <div class="diktat-tasten">
+    <button class="haupt" id="diktatFertig">Übernehmen</button>
+    <button id="diktatAus">Ende</button>
+  </div>
+</div>
 <div class="meldung" id="meldung" hidden></div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -1046,6 +1080,182 @@ function scheinPruefen(g){
   document.getElementById('scheinbox').hidden = false;
 }
 
+
+/* ---------- Freisprechmodus: diktieren ohne Anfassen ---------- */
+let hoerer = null, hoertZu = false, diktatZiel = 'anliegen', diktatWach = null;
+
+function spracheDa(){ return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+
+const DIKTATFELDER = {
+  anliegen: {feld:'fAnliegen', bez:'Auftragsumfang'},
+  notiz:    {feld:'fNotiz',    bez:'Interne Notiz'}
+};
+
+function diktatAnzeigen(vorlaeufig){
+  const ziel = DIKTATFELDER[diktatZiel];
+  document.getElementById('diktatZiel').textContent = ziel.bez;
+  const fest = (entwurf && entwurf[diktatZiel]) || '';
+  document.getElementById('diktatText').innerHTML =
+    esc(fest) + (vorlaeufig ? '<span class="vorlaeufig"> ' + esc(vorlaeufig) + '</span>' : '');
+  const k = document.getElementById('diktatText');
+  k.scrollTop = k.scrollHeight;
+}
+
+function diktatStand(t){ document.getElementById('diktatStand').textContent = t || ''; }
+
+// Erkennt gesprochene Befehle. Gibt true zurueck, wenn der Satz ein Befehl war.
+function diktatBefehl(satz){
+  const s = satz.toLowerCase().replace(/[.,!?]/g,'').trim();
+  if(/^(auftragsumfang|auftrag umfang|kundenangabe)$/.test(s)){
+    diktatZiel = 'anliegen'; diktatAnzeigen(); melden('Diktat: Auftragsumfang'); return true;
+  }
+  if(/^((interne )?notiz|befund)$/.test(s)){
+    diktatZiel = 'notiz'; diktatAnzeigen(); melden('Diktat: Interne Notiz'); return true;
+  }
+  if(/^(neuer auftrag|nächster auftrag|naechster auftrag)$/.test(s)){
+    diktatNeu(); return true;
+  }
+  if(/^(speichern|auftrag speichern|sichern)$/.test(s)){
+    diktatSpeichern(); return true;
+  }
+  if(/^(ende|stopp|stop|beenden|fertig|schluss)$/.test(s)){
+    diktatBeenden(); return true;
+  }
+  if(/^(zurücknehmen|zurueck nehmen|letzten satz löschen|loeschen)$/.test(s)){
+    const t = (entwurf[diktatZiel]||'').trim().split(/(?<=[.!?])\s+/);
+    t.pop();
+    entwurf[diktatZiel] = t.join(' ');
+    diktatAnzeigen(); melden('Letzter Satz entfernt'); return true;
+  }
+  return false;
+}
+
+function diktatSchreiben(satz){
+  const rein = satz.trim().replace(/^\w/, c => c.toUpperCase());
+  if(!rein) return;
+  const bisher = entwurf[diktatZiel] || '';
+  entwurf[diktatZiel] = (bisher ? bisher.replace(/\s*$/,'') + ' ' : '') + rein + (/[.!?]$/.test(rein) ? '' : '.');
+  diktatAnzeigen();
+}
+
+async function diktatNeu(){
+  await diktatSpeichern(true);
+  editor(null);
+  document.getElementById('diktat').hidden = false;   // Editor blendet das Fenster sonst aus
+  diktatZiel = 'anliegen';
+  diktatAnzeigen();
+  melden('Neuer Auftrag ' + entwurf.nummer);
+}
+
+async function diktatSpeichern(still){
+  if(!entwurf) return;
+  const felder = document.getElementById('fAnliegen');
+  if(felder) felder.value = entwurf.anliegen || '';
+  const n = document.getElementById('fNotiz');
+  if(n) n.value = entwurf.notiz || '';
+  if(!entwurf.anliegen && !entwurf.notiz){ if(!still) melden('Noch nichts diktiert', true); return; }
+  try{
+    await speichernAuftrag();
+    if(!still) melden('Auftrag gespeichert');
+  }catch(e){ melden('Speichern fehlgeschlagen: ' + (e.message||e), true); }
+}
+
+function hoererBauen(){
+  const Erkenner = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const r = new Erkenner();
+  r.lang = 'de-DE';
+  r.continuous = true;
+  r.interimResults = true;
+  r.onresult = e =>{
+    let vorlaeufig = '';
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const stueck = e.results[i][0].transcript;
+      if(e.results[i].isFinal){
+        if(!diktatBefehl(stueck)) diktatSchreiben(stueck);
+      }else vorlaeufig += stueck;
+    }
+    if(vorlaeufig) diktatAnzeigen(vorlaeufig);
+  };
+  r.onerror = e =>{
+    if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+      hoertZu = false;
+      diktatKnopfZeigen('Mikrofon ist gesperrt. In Chrome unter den Seiteneinstellungen dauerhaft erlauben – danach startet das Diktat von selbst.');
+    }else if(e.error === 'no-speech'){
+      diktatStand('nichts gehört …');
+    }
+  };
+  r.onend = ()=>{
+    // Chrome hört nach einer Sprechpause auf – gleich wieder anfangen
+    if(hoertZu){ try{ r.start(); }catch(e){} }
+    else{ document.getElementById('diktat').classList.remove('hoert'); diktatStand(''); }
+  };
+  r.onstart = ()=>{
+    document.getElementById('diktat').classList.add('hoert');
+    diktatStand('hört zu');
+    const g = document.getElementById('diktatGross');
+    if(g) g.remove();
+  };
+  return r;
+}
+
+function diktatKnopfZeigen(text){
+  const kasten = document.getElementById('diktat');
+  if(document.getElementById('diktatGross')) return;
+  const d = document.createElement('div');
+  d.className = 'diktat-gross';
+  d.id = 'diktatGross';
+  d.innerHTML = '<p class="diktat-hinweis" style="margin-bottom:14px;max-width:20em">' + esc(text) + '</p>'
+              + '<button>Zuhören starten</button>';
+  d.querySelector('button').onclick = ()=> diktatHoeren();
+  kasten.insertBefore(d, kasten.querySelector('.diktat-tasten'));
+}
+
+async function diktatWachHalten(){
+  try{
+    if('wakeLock' in navigator && !diktatWach)
+      diktatWach = await navigator.wakeLock.request('screen');
+  }catch(e){}
+}
+function diktatWachAus(){
+  try{ if(diktatWach){ diktatWach.release(); diktatWach = null; } }catch(e){}
+}
+
+function diktatHoeren(){
+  if(!spracheDa()){ melden('Dieser Browser kann keine Spracherkennung – bitte Chrome verwenden.', true); return; }
+  if(!hoerer) hoerer = hoererBauen();
+  hoertZu = true;
+  diktatWachHalten();
+  try{ hoerer.start(); }
+  catch(e){ /* laeuft bereits */ }
+}
+
+function diktatOeffnen(ziel){
+  if(!entwurf) editor(null);
+  diktatZiel = ziel || 'anliegen';
+  document.getElementById('diktat').hidden = false;
+  diktatAnzeigen();
+  diktatHoeren();
+  // Falls das Mikrofon eine Berührung verlangt, erscheint nach kurzer Zeit der große Knopf
+  setTimeout(()=>{
+    if(!document.getElementById('diktat').classList.contains('hoert'))
+      diktatKnopfZeigen('Chrome möchte für das Mikrofon einmal eine Berührung. Danach kannst Du das Handy liegen lassen.');
+  }, 1400);
+}
+
+function diktatBeenden(){
+  hoertZu = false;
+  try{ if(hoerer) hoerer.stop(); }catch(e){}
+  diktatWachAus();
+  document.getElementById('diktat').hidden = true;
+  document.getElementById('diktat').classList.remove('hoert');
+  zeichne();
+}
+
+async function diktatUebernehmen(){
+  await diktatSpeichern();
+  diktatBeenden();
+}
+
 /* ---------- Bilder in Drive ---------- */
 let bilderOrdnerId = null;
 const bildCache = new Map();
@@ -1359,7 +1569,9 @@ function zeichne(){
   </fieldset>
   <fieldset><legend>Auftrag</legend>
     <label for="fAnliegen">Auftragsumfang</label><textarea class="feld" id="fAnliegen">${esc(a.anliegen)}</textarea>
+    <button class="plus" data-diktat="anliegen">🎤 Auftragsumfang diktieren</button>
     <label for="fNotiz">Interne Notiz</label><textarea class="feld" id="fNotiz">${esc(a.notiz)}</textarea>
+    <button class="plus" data-diktat="notiz">🎤 Notiz diktieren</button>
   </fieldset>
   <fieldset><legend>Bilder</legend>
     <div class="bilder" id="bildStreifen">${(a.bilder||[]).map((b,i)=>
@@ -1426,6 +1638,7 @@ function zeichne(){
   document.getElementById('fotoWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
   document.getElementById('bildWahl').onchange = e => bilderAnhaengen([...e.target.files], e.target);
   document.getElementById('btnSchein').onclick = ()=> scheinBildWaehlen();
+  document.querySelectorAll('[data-diktat]').forEach(b => b.onclick = ()=>{ uebernehmen(); diktatOeffnen(b.dataset.diktat); });
   const pm = document.getElementById('fPreisModus');
   if(pm) pm.onchange = ()=>{ uebernehmen(); zeichne(); };
   document.getElementById('btnSpeichern').onclick = speichernAuftrag;
@@ -1511,7 +1724,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-10 / 39';
+const APPVERSION = '2026-08-19 / 40';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
@@ -1639,6 +1852,14 @@ setInterval(()=>{
   if(document.hidden || !cfg.clientId || !gisBereit()) return;
   if(tokenBis && Date.now() > tokenBis - 10*60*1000) anmelden(false).catch(()=>{});
 }, 4*60*1000);
+
+document.getElementById('diktatFertig').onclick = diktatUebernehmen;
+document.getElementById('diktatAus').onclick = diktatBeenden;
+
+// Direkt ins Diktat starten, wenn die App über das Diktat-Symbol geöffnet wurde
+if(/[?&]diktat=1/.test(location.search)){
+  setTimeout(()=>{ editor(null); diktatOeffnen('anliegen'); }, 400);
+}
 
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
