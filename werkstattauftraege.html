@@ -413,7 +413,7 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 const KEY = 'werkstatt-v1';
-const VERSION = '2026-08-19 / 51';
+const VERSION = '2026-11-02 / 53';
 const STATUS = [
   {id:'angenommen', label:'Angenommen', kurz:'Ang'},
   {id:'arbeit',     label:'In Arbeit',   kurz:'Arb'},
@@ -1241,7 +1241,9 @@ function scheinAuswerten(roh){
     'HUSABERG','ROYAL ENFIELD','MV AGUSTA','BENELLI','INDIAN','CFMOTO','CF MOTO','SYM','KYMCO',
     'PEUGEOT','DERBI','GILERA','BETA','GASGAS','GAS GAS','SHERCO','SWM','FANTIC','MASH','BRIXTON',
     'VOGE','QJ MOTOR','KEEWAY','ZONTES','SIMSON','MZ','HYOSUNG','BUELL','VICTORY','ZERO','NIU',
-    'MERCEDES-BENZ','VOLKSWAGEN','AUDI','OPEL','FORD','SKODA','SEAT','RENAULT','FIAT','TOYOTA'];
+    'MERCEDES-BENZ','VOLKSWAGEN','AUDI','OPEL','FORD','SKODA','SEAT','RENAULT','FIAT','TOYOTA',
+    'MOTO MORINI','LAVERDA','BIMOTA','CAGIVA','HYOSUNG','DAELIM','MALAGUTI','RIEJU','ORCAL',
+    'LEXMOTO','MUTT','HERKULES','KREIDLER','ZÜNDAPP','ZUENDAPP','HOREX','MAICO','MOTOBECANE'];
   const gross = text.toUpperCase();
   let marke = '';
   for(const h of HERSTELLER){
@@ -1255,7 +1257,14 @@ function scheinAuswerten(roh){
   }
 
   // ---- Modell: Codefeld, sonst laengste Buchstaben-Ziffern-Marke im Text ----
-  let modell = saeubern(nachCode('D.3', 3, v => !/^\d+$/.test(v)));
+  // Platzhalter und reine Zahlen sind keine Modellbezeichnung
+  const istModell = v => {
+    const t = String(v||'').trim();
+    if(/^(n\/?a|k\.?a\.?|ohne|entf(ällt|aellt)?|keine?)$/i.test(t)) return false;
+    if(!/[A-Za-z]/.test(t)) return false;
+    return true;
+  };
+  let modell = saeubern(nachCode('D.3', 3, istModell)) || saeubern(nachCode('D.2', 3, istModell));
   if(!/[A-Za-zÄÖÜäöüß]{2,}/.test(modell)) modell = '';
   if(!modell){
     const kandidaten = (text.match(/\b[A-Z][A-Z0-9\-]{3,19}\b/g) || []).filter(w =>
@@ -1555,6 +1564,41 @@ async function scheinLesenDrive(datei){
     // Hilfsdokument wieder entfernen, damit das Drive nicht zuwuchert
     try{ await driveApi('https://www.googleapis.com/drive/v3/files/' + dok, {method:'DELETE'}); }catch(e){}
   }
+}
+
+/* ---------- Erkennungstest: viele Scheine am Stück prüfen ---------- */
+async function erkennungstest(dateien){
+  const felder = SCHEINFELDER.map(f=>f.id);
+  const teile = [
+    'ERKENNUNGSTEST  ' + new Date().toLocaleString('de-DE'),
+    'Fassung ' + VERSION + '   Weg: ' + (scheinWeg() === 'drive' ? 'Google Drive' : 'Browser'),
+    'Scheine: ' + dateien.length,
+    '='.repeat(70), ''
+  ];
+  let gelungen = 0;
+
+  for(let i = 0; i < dateien.length; i++){
+    const d = dateien[i];
+    scheinFortschritt('Schein ' + (i+1) + ' von ' + dateien.length + ': ' + d.name, i / dateien.length);
+    let text = '', fehler = '';
+    try{
+      const bild = await bildZuschneiden(d);
+      text = (scheinWeg() === 'drive') ? await scheinLesenDreh(bild) : await scheinLesenBrowser(bild);
+      gelungen++;
+    }catch(e){ fehler = e.message || String(e); }
+
+    const g = scheinAuswerten(text);
+    teile.push('--- ' + (i+1) + ') ' + d.name + ' ---');
+    if(fehler) teile.push('FEHLER: ' + fehler);
+    teile.push('ERKANNTE FELDER:');
+    SCHEINFELDER.forEach(f => teile.push('  ' + (f.bez + ':').padEnd(16) + (g[f.id] || '(leer)')));
+    teile.push('', 'ROHTEXT:', text || '(kein Text)', '', '='.repeat(70), '');
+  }
+
+  scheinSchliessen();
+  download('erkennungstest-' + new Date().toISOString().slice(0,10) + '.txt',
+    teile.join('\n'), 'text/plain;charset=utf-8');
+  melden(gelungen + ' von ' + dateien.length + ' Scheinen gelesen – Textdatei wurde geladen');
 }
 
 async function scheinLesen(quelle){
@@ -2628,6 +2672,9 @@ function einstellungen(){
   </fieldset>
   <fieldset><legend>Texterkennung Fahrzeugschein</legend>
     <p class="notiz">Die Drive-Erkennung ist deutlich treffsicherer und kostet nichts extra. Ohne Netz oder Anmeldung weicht sie von selbst auf den Browser aus.</p>
+    <input type="file" id="testWahl" accept="image/*" multiple hidden>
+    <button class="k2" id="btnErkennungstest" style="margin-bottom:10px">Erkennungstest mit mehreren Scheinen</button>
+    <p class="notiz">Liest beliebig viele Scheinfotos nacheinander aus und legt eine Textdatei mit allen Rohtexten und Ergebnissen zum Herunterladen an. Nichts davon wird gespeichert oder an einen Auftrag gehängt.</p>
     <select class="feld" id="sSchein">
       <option value="drive" ${scheinWeg()==='drive'?'selected':''}>Google Drive – treffsicher, braucht Netz</option>
       <option value="browser" ${scheinWeg()==='browser'?'selected':''}>Im Browser – ohne Datenversand, ungenauer</option>
@@ -2689,6 +2736,14 @@ function einstellungen(){
       preisModus: document.getElementById('sPreisModus').value
     };
     speichern(); schliessen(); render();
+  };
+  const btTest = document.getElementById('btnErkennungstest');
+  if(btTest) btTest.onclick = ()=> document.getElementById('testWahl').click();
+  const tw = document.getElementById('testWahl');
+  if(tw) tw.onchange = e =>{
+    const dateien = [...e.target.files];
+    e.target.value = '';
+    if(dateien.length) erkennungstest(dateien);
   };
   const sw = document.getElementById('sSchein');
   if(sw) sw.onchange = e =>{
