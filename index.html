@@ -669,7 +669,9 @@ function scheinAuswerten(roh){
     'HUSABERG','ROYAL ENFIELD','MV AGUSTA','BENELLI','INDIAN','CFMOTO','CF MOTO','SYM','KYMCO',
     'PEUGEOT','DERBI','GILERA','BETA','GASGAS','GAS GAS','SHERCO','SWM','FANTIC','MASH','BRIXTON',
     'VOGE','QJ MOTOR','KEEWAY','ZONTES','SIMSON','MZ','HYOSUNG','BUELL','VICTORY','ZERO','NIU',
-    'MERCEDES-BENZ','VOLKSWAGEN','AUDI','OPEL','FORD','SKODA','SEAT','RENAULT','FIAT','TOYOTA'];
+    'MERCEDES-BENZ','VOLKSWAGEN','AUDI','OPEL','FORD','SKODA','SEAT','RENAULT','FIAT','TOYOTA',
+    'MOTO MORINI','LAVERDA','BIMOTA','CAGIVA','HYOSUNG','DAELIM','MALAGUTI','RIEJU','ORCAL',
+    'LEXMOTO','MUTT','HERKULES','KREIDLER','ZÜNDAPP','ZUENDAPP','HOREX','MAICO','MOTOBECANE'];
   const gross = text.toUpperCase();
   let marke = '';
   for(const h of HERSTELLER){
@@ -683,7 +685,13 @@ function scheinAuswerten(roh){
   }
 
   // ---- Modell: Codefeld, sonst laengste Buchstaben-Ziffern-Marke im Text ----
-  let modell = saeubern(nachCode('D.3', 3, v => !/^\d+$/.test(v)));
+  const istModell = v => {
+    const t = String(v||'').trim();
+    if(/^(n\/?a|k\.?a\.?|ohne|entf(ällt|aellt)?|keine?)$/i.test(t)) return false;
+    if(!/[A-Za-z]/.test(t)) return false;
+    return true;
+  };
+  let modell = saeubern(nachCode('D.3', 3, istModell)) || saeubern(nachCode('D.2', 3, istModell));
   if(!/[A-Za-zÄÖÜäöüß]{2,}/.test(modell)) modell = '';
   if(!modell){
     const kandidaten = (text.match(/\b[A-Z][A-Z0-9\-]{3,19}\b/g) || []).filter(w =>
@@ -1761,7 +1769,7 @@ async function speichernAuftrag(){
   else if(bilanz && bilanz.geloescht) melden('Gespeichert – ' + bilanz.geloescht + (bilanz.geloescht>1?' Kalendereinträge':' Kalendereintrag') + ' gelöscht');
 }
 
-const APPVERSION = '2026-08-19 / 43';
+const APPVERSION = '2026-11-02 / 44';
 /* ---------- Konto & Einrichtung ---------- */
 function setup(){
   aktuelleId = null;
